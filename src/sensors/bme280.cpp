@@ -78,14 +78,13 @@ uint8_t BME280::read8(uint8_t reg) {
 }
 
 uint16_t BME280::read16(uint8_t reg) {
-    uint8_t buf[2];
-    write(fd, &reg, 1);
-    read(fd, buf, 2);
-    return (buf[0] << 8) | buf[1];
+    uint8_t lsb = read8(reg);       // read LSB first
+    uint8_t msb = read8(reg + 1);   // then MSB
+    return (msb << 8) | lsb;        // combine
 }
 
 int16_t BME280::readS16(uint8_t reg) {
-    return static_cast<int16_t>(read16(reg));
+    return (int16_t)read16(reg);
 }
 
 uint32_t BME280::read24(uint8_t reg) {
