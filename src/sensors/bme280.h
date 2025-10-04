@@ -12,7 +12,7 @@ public:
     bool begin();
     float readTemperature(); // °C
     float readPressure();    // hPa
-    float readAltitude();    // m
+    float readAltitude(float seaLevel_hPa = 1013.25f);    // m
     float readHumidity();    // %RH
 
 private:
