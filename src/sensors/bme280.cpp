@@ -202,7 +202,7 @@ float BME280::readHumidity() {
 }
 
 float BME280::calibrateAltitude() {
-    std::cout << "Measuring pad pressure for altitude calibration..." << std::flush;
+    std::cout << "Measuring pad pressure for altitude calibration..." << std::endl;
     
     float pressure_sum = 0.0f;
     
