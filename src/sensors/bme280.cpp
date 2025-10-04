@@ -14,6 +14,14 @@
 #define REG_PRESS_MSB 0xF7
 #define REG_HUM_MSB 0xFD
 
+#define REG_PRESS_LSB  0xF8
+#define REG_PRESS_XLSB 0xF9
+#define REG_TEMP_MSB   0xFA
+#define REG_TEMP_LSB   0xFB
+#define REG_TEMP_XLSB  0xFC
+#define REG_HUM_LSB    0xFE
+
+
 BME280::BME280(const std::string &i2c_dev, uint8_t address)
     : i2c_addr(address), fd(-1), t_fine(0) 
 {
