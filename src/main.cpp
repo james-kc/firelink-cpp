@@ -5,11 +5,12 @@
 int main() {
     BME280 sensor;
     sensor.begin();
+    float pad_pressure = sensor.calibrateAltitude();
 
     while (true) {
         float temp = sensor.readTemperature();
         float pressure = sensor.readPressure();
-        float altitude = sensor.readAltitude();
+        float altitude = sensor.readAltitude(pad_pressure);
         float humidity = sensor.readHumidity();
         std::cout << "Temp: " << temp << " °C, "
                   << "Pressure: " << pressure << " hPa, "

@@ -200,3 +200,20 @@ float BME280::readHumidity() {
     v_x1_u32r = std::max(0, std::min(v_x1_u32r, 419430400));
     return (v_x1_u32r >> 12) / 1024.0f;
 }
+
+float BME280::calibrateAltitude() {
+    cout << "Measuring pad pressure for altitude calibration...";
+    
+    float pressure_sum = 0.0f;
+    
+    for (int i = 0; i < 10; ++i) {
+        pressure_sum += readPressure();
+        sleep(1);        
+    }
+
+    float pad_pressure = pressure_sum / 10.0f;
+
+    cout << " done. Pad pressure: " << pad_pressure << " hPa" << endl;
+
+    return pad_pressure;
+}
