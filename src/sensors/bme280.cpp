@@ -41,11 +41,11 @@ BME280::~BME280() {
 }
 
 bool BME280::begin() {
-    // 🔍 Read and print the chip ID
+    // Read and print the chip ID
     uint8_t id = read8(REG_ID);
-    std::cout << "BME280 ID: 0x" << std::hex << (int)id << std::dec << std::endl;
 
     if (id != 0x60) {
+        std::cout << "BME280 ID: 0x" << std::hex << (int)id << std::dec << std::endl;
         std::cerr << "Unexpected chip ID! (expected 0x60)" << std::endl;
         return false;
     }
@@ -213,7 +213,7 @@ float BME280::calibrateAltitude() {
 
     float pad_pressure = pressure_sum / 10.0f;
 
-    std::cout << " done. Pad pressure: " << pad_pressure << " hPa" << std::endl;
+    std::cout << "Altitude calibration complete. Pad pressure: " << pad_pressure << " hPa" << std::endl;
 
     return pad_pressure;
 }
