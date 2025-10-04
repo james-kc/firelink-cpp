@@ -52,6 +52,8 @@ bool BME280::begin() {
 
     // Read calibration data
     readCalibration();
+    printCalibration();
+
 
     // Set humidity oversampling x1
     uint8_t buf_hum[2] = {REG_CTRL_HUM, 0x01};
@@ -119,6 +121,31 @@ void BME280::readCalibration() {
     calib.dig_H4 = (e4 << 4) | (e5 & 0x0F);
     calib.dig_H5 = (e6 << 4) | (e5 >> 4);
     calib.dig_H6 = static_cast<int8_t>(read8(0xE7));
+}
+
+
+void BME280::printCalibration() {
+    printf("Calibration values:\n");
+    printf("T1: %u\n", calib.dig_T1);
+    printf("T2: %d\n", calib.dig_T2);
+    printf("T3: %d\n", calib.dig_T3);
+
+    printf("P1: %u\n", calib.dig_P1);
+    printf("P2: %d\n", calib.dig_P2);
+    printf("P3: %d\n", calib.dig_P3);
+    printf("P4: %d\n", calib.dig_P4);
+    printf("P5: %d\n", calib.dig_P5);
+    printf("P6: %d\n", calib.dig_P6);
+    printf("P7: %d\n", calib.dig_P7);
+    printf("P8: %d\n", calib.dig_P8);
+    printf("P9: %d\n", calib.dig_P9);
+
+    printf("H1: %u\n", calib.dig_H1);
+    printf("H2: %d\n", calib.dig_H2);
+    printf("H3: %u\n", calib.dig_H3);
+    printf("H4: %d\n", calib.dig_H4);
+    printf("H5: %d\n", calib.dig_H5);
+    printf("H6: %d\n", calib.dig_H6);
 }
 
 
