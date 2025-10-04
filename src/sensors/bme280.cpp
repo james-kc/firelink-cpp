@@ -52,7 +52,7 @@ bool BME280::begin() {
 
     // Read calibration data
     readCalibration();
-    printCalibration();
+    // printCalibration();
 
 
     // Set humidity oversampling x1
