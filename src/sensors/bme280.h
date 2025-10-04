@@ -14,6 +14,7 @@ public:
     float readPressure();    // hPa
     float readAltitude(float seaLevel_hPa = 1013.25f);    // m
     float readHumidity();    // %RH
+    float calibrateAltitude(); // returns current pressure, averaged 10 times in hPa
 
 private:
     int fd;
