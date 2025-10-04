@@ -89,6 +89,7 @@ void BME280::readCalibration() {
     calib.dig_T1 = read16(0x88);
     calib.dig_T2 = readS16(0x8A);
     calib.dig_T3 = readS16(0x8C);
+
     calib.dig_P1 = read16(0x8E);
     calib.dig_P2 = readS16(0x90);
     calib.dig_P3 = readS16(0x92);
@@ -102,19 +103,28 @@ void BME280::readCalibration() {
     calib.dig_H1 = read8(0xA1);
     calib.dig_H2 = readS16(0xE1);
     calib.dig_H3 = read8(0xE3);
-    calib.dig_H4 = (read8(0xE4) << 4) | (read8(0xE5) & 0x0F);
-    calib.dig_H5 = (read8(0xE6) << 4) | (read8(0xE5) >> 4);
+
+    uint8_t e4 = read8(0xE4);
+    uint8_t e5 = read8(0xE5);
+    uint8_t e6 = read8(0xE6);
+
+    calib.dig_H4 = (e4 << 4) | (e5 & 0x0F);
+    calib.dig_H5 = (e6 << 4) | (e5 >> 4);
     calib.dig_H6 = static_cast<int8_t>(read8(0xE7));
 }
 
+
 float BME280::readTemperature() {
-    int32_t adc_T = read24(REG_PRESS_MSB + 3) >> 4;
-    int32_t var1 = ((((adc_T >> 3) - ((int32_t)calib.dig_T1 << 1))) * calib.dig_T2) >> 11;
-    int32_t var2 = (((((adc_T >> 4) - calib.dig_T1) * ((adc_T >> 4) - calib.dig_T1)) >> 12) * calib.dig_T3) >> 14;
+    int32_t adc_T = read24(REG_TEMP_MSB) >> 4;
+
+    int32_t var1 = ((((adc_T >> 3) - ((int32_t)calib.dig_T1 << 1))) * ((int32_t)calib.dig_T2)) >> 11;
+    int32_t var2 = (((((adc_T >> 4) - ((int32_t)calib.dig_T1)) * ((adc_T >> 4) - ((int32_t)calib.dig_T1))) >> 12) * ((int32_t)calib.dig_T3)) >> 14;
+
     t_fine = var1 + var2;
     float T = (t_fine * 5 + 128) >> 8;
     return T / 100.0f;
 }
+
 
 float BME280::readPressure() {
     readTemperature(); // updates t_fine
@@ -125,27 +135,29 @@ float BME280::readPressure() {
     var2 = var2 + ((var1 * (int64_t)calib.dig_P5) << 17);
     var2 = var2 + (((int64_t)calib.dig_P4) << 35);
     var1 = ((var1 * var1 * (int64_t)calib.dig_P3) >> 8) + ((var1 * (int64_t)calib.dig_P2) << 12);
-    var1 = (((((int64_t)1) << 47) + var1) * calib.dig_P1) >> 33;
-    if (var1 == 0) return 0; // avoid division by zero
+    var1 = (((((int64_t)1) << 47) + var1) * (int64_t)calib.dig_P1) >> 33;
+
+    if (var1 == 0) return 0; // avoid div by zero
 
     int64_t p = 1048576 - adc_P;
     p = (((p << 31) - var2) * 3125) / var1;
-    var1 = ((int64_t)calib.dig_P9 * (p >> 13) * (p >> 13)) >> 25;
-    var2 = ((int64_t)calib.dig_P8 * p) >> 19;
-    p = ((p + var1 + var2) >> 8) + ((int64_t)calib.dig_P7 << 4);
-    return (float)p / 256.0f / 100.0f; // hPa
+    var1 = (((int64_t)calib.dig_P9) * (p >> 13) * (p >> 13)) >> 25;
+    var2 = (((int64_t)calib.dig_P8) * p) >> 19;
+    p = ((p + var1 + var2) >> 8) + (((int64_t)calib.dig_P7) << 4);
+
+    return (float)p / 25600.0f; // convert to hPa
 }
 
 float BME280::readHumidity() {
     readTemperature(); // updates t_fine
 
     int32_t adc_H = (read8(REG_HUM_MSB) << 8) | read8(REG_HUM_MSB + 1);
+
     int32_t v_x1_u32r = t_fine - 76800;
-    v_x1_u32r = (((((adc_H << 14) - ((int32_t)calib.dig_H4 << 20) - ((int32_t)calib.dig_H5 * v_x1_u32r)) + 16384) >> 15) *
-                 (((((((v_x1_u32r * calib.dig_H6) >> 10) * (((v_x1_u32r * calib.dig_H3) >> 11) + 32768)) >> 10) + 2097152) *
-                   calib.dig_H2 + 8192) >> 14));
-    v_x1_u32r = v_x1_u32r - (((((v_x1_u32r >> 15) * (v_x1_u32r >> 15)) >> 7) * calib.dig_H1) >> 4);
-    v_x1_u32r = (v_x1_u32r < 0) ? 0 : v_x1_u32r;
-    v_x1_u32r = (v_x1_u32r > 419430400) ? 419430400 : v_x1_u32r;
+    v_x1_u32r = (((((adc_H << 14) - (((int32_t)calib.dig_H4) << 20) - (((int32_t)calib.dig_H5) * v_x1_u32r)) + 16384) >> 15) *
+                 (((((((v_x1_u32r * (int32_t)calib.dig_H6) >> 10) * (((v_x1_u32r * (int32_t)calib.dig_H3) >> 11) + 32768)) >> 10) + 2097152) *
+                    (int32_t)calib.dig_H2 + 8192) >> 14));
+    v_x1_u32r = v_x1_u32r - (((((v_x1_u32r >> 15) * (v_x1_u32r >> 15)) >> 7) * (int32_t)calib.dig_H1) >> 4);
+    v_x1_u32r = std::max(0, std::min(v_x1_u32r, 419430400));
     return (v_x1_u32r >> 12) / 1024.0f;
 }
