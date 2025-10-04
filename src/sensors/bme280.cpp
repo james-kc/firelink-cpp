@@ -33,6 +33,16 @@ BME280::~BME280() {
 }
 
 bool BME280::begin() {
+    // 🔍 Read and print the chip ID
+    uint8_t id = read8(REG_ID);
+    std::cout << "BME280 ID: 0x" << std::hex << (int)id << std::dec << std::endl;
+
+    if (id != 0x60) {
+        std::cerr << "Unexpected chip ID! (expected 0x60)" << std::endl;
+        return false;
+    }
+
+    // Read calibration data
     readCalibration();
 
     // Set humidity oversampling x1
