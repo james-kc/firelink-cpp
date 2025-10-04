@@ -9,9 +9,11 @@ int main() {
     while (true) {
         float temp = sensor.readTemperature();
         float pressure = sensor.readPressure();
+        float altitude = sensor.readAltitude();
         float humidity = sensor.readHumidity();
         std::cout << "Temp: " << temp << " °C, "
                   << "Pressure: " << pressure << " hPa, "
+                  << "Altitude: " << altitude << " m, "
                   << "Humidity: " << humidity << " %" << std::endl;
         sleep(1);
     }

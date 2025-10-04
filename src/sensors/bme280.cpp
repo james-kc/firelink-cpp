@@ -182,6 +182,11 @@ float BME280::readPressure() {
     return (float)p / 25600.0f; // convert to hPa
 }
 
+float BME280::readAltitude(float seaLevel_hPa = 1013.25f) {
+    float pressure = readPressure();  // in hPa
+    return 44330.0f * (1.0f - pow(pressure / seaLevel_hPa, 0.1903f));
+}
+
 float BME280::readHumidity() {
     readTemperature(); // updates t_fine
 

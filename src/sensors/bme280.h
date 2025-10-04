@@ -12,6 +12,7 @@ public:
     bool begin();
     float readTemperature(); // °C
     float readPressure();    // hPa
+    float readAltitude();    // m
     float readHumidity();    // %RH
 
 private:
@@ -36,7 +37,7 @@ private:
     int16_t readS16(uint8_t reg);
     uint32_t read24(uint8_t reg);
     void readCalibration();
-    void printCalibration();
+    // void printCalibration();
 };
 
 #endif // BME280_H
