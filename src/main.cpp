@@ -86,17 +86,9 @@ int main() {
     std::this_thread::sleep_for(std::chrono::milliseconds(600));
 
     // Play a short melody
-    int melody1[] = {262, 330, 392}; // C4-E4-G4
-    for (int note : melody1) {
+    int melody[] = {262, 330, 392}; // C4-E4-G4
+    for (int note : melody) {
         buzzer.tone(note, 175);
-    }
-
-    std::this_thread::sleep_for(std::chrono::milliseconds(600));
-
-    // Play a short melody, double speed
-    int melody2[] = {262, 330, 392, 262, 330, 392}; // C4-E4-G4
-    for (int note : melody2) {
-        buzzer.tone(note, 87.5);
     }
 
     std::this_thread::sleep_for(std::chrono::milliseconds(600));
@@ -106,12 +98,6 @@ int main() {
     std::vector<int> durations = { 100, 100, 100, 600 };  // ms per note
 
     buzzer.playMelody(chestOpen, durations);
-
-    // C major “chest open” melody (approximation)
-    std::vector<int> chestOpen2 = { 440, 466, 494, 523 }; // A4, Bb4, B4, C5
-    std::vector<int> durations2 = { 100, 100, 100, 600 };  // ms per note
-
-    buzzer.playMelody(chestOpen2, durations2);
 
 
 }
