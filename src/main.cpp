@@ -99,9 +99,11 @@ int main() {
         buzzer.tone(note, 87.5);
     }
 
+    std::this_thread::sleep_for(std::chrono::milliseconds(600));
+
     // C major “chest open” melody (approximation)
-    std::vector<int> chestOpen = { 523, 659, 783, 1046 }; // C5, E5, G5, C6
-    std::vector<int> durations = { 100, 100, 100, 150 };  // ms per note
+    std::vector<int> chestOpen = { 880, 932, 988, 1047 }; // A5, Bb5, B5, C6
+    std::vector<int> durations = { 100, 100, 100, 600 };  // ms per note
 
     buzzer.playMelody(chestOpen, durations);
 
