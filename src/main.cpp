@@ -3,6 +3,8 @@
 #include "sensors/gps.h"
 #include "outputs/buzzer.h"
 #include "outputs/buzzer_pwm.h"
+#include <thread>
+#include <chrono>
 #include <iostream>
 #include <unistd.h>
 
@@ -22,7 +24,7 @@ int main() {
     //               << "Pressure: " << pressure << " hPa, "
     //               << "Altitude: " << altitude << " m, "
     //               << "Humidity: " << humidity << " %" << std::endl;
-    //     sleep(1);
+    //     std::this_thread::sleep_for(std::chrono::seconds(1));
     // }
 
     // IMU Test
@@ -39,7 +41,7 @@ int main() {
     //     std::cout << "Accel [m/s²]: X=" << ax << " Y=" << ay << " Z=" << az
     //               << " | Gyro [°/s]: X=" << gx << " Y=" << gy << " Z=" << gz << std::endl;
 
-    //     sleep(1);
+    //     std::this_thread::sleep_for(std::chrono::seconds(1));
     // }
 
     // return 0;
@@ -59,7 +61,7 @@ int main() {
     //     } else {
     //         std::cout << "No valid GPS data..." << std::endl;
     //     }
-    //     sleep(1);
+    //     std::this_thread::sleep_for(std::chrono::seconds(1));
     // }
 
     // Buzzer Test
@@ -68,7 +70,7 @@ int main() {
 
     // while (true) {
     //     buzzer.beep(200); // beep 200ms
-    //     sleep(1);
+    //     std::this_thread::sleep_for(std::chrono::seconds(1));
     // }
 
     // Buzzer PWM Test
