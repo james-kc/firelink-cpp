@@ -98,4 +98,12 @@ int main() {
         buzzer.tone(note, 87.5);
     }
 
+    // C major “chest open” melody
+    int chestNotes[] = {523, 659, 783, 1046}; // C5, E5, G5, C6
+    int durations[]  = {100, 100, 100, 150};  // milliseconds per note
+    int numNotes = sizeof(chestNotes) / sizeof(chestNotes[0]);
+
+    buzzer.playMelody(chestNotes, durations, 4);
+
+
 }
