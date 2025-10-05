@@ -1,6 +1,7 @@
 #include "sensors/bme280.h"
 #include "sensors/imu.h"
 #include "sensors/gps.h"
+#include "outputs/buzzer.h"
 #include <iostream>
 #include <unistd.h>
 
@@ -43,20 +44,29 @@ int main() {
     // return 0;
 
     // GPS Test
-    GPS gps;
-    if (!gps.begin()) return 1;
+    // GPS gps;
+    // if (!gps.begin()) return 1;
+
+    // while (true) {
+    //     double lat, lon, alt;
+    //     int fix, sats;
+    //     if (gps.getPosition(lat, lon, alt, fix, sats)) {
+    //         std::cout << "Lat: " << lat << ", Lon: " << lon
+    //                   << ", Alt: " << alt << " m"
+    //                   << ", Fix: " << fix
+    //                   << ", Sats: " << sats << std::endl;
+    //     } else {
+    //         std::cout << "No valid GPS data..." << std::endl;
+    //     }
+    //     sleep(1);
+    // }
+
+    // Buzzer Test
+    Buzzer buzzer;
+    if (!buzzer.begin()) return 1;
 
     while (true) {
-        double lat, lon, alt;
-        int fix, sats;
-        if (gps.getPosition(lat, lon, alt, fix, sats)) {
-            std::cout << "Lat: " << lat << ", Lon: " << lon
-                      << ", Alt: " << alt << " m"
-                      << ", Fix: " << fix
-                      << ", Sats: " << sats << std::endl;
-        } else {
-            std::cout << "No valid GPS data..." << std::endl;
-        }
+        buzzer.beep(200); // beep 200ms
         sleep(1);
     }
 
