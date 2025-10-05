@@ -24,7 +24,7 @@ bool IMU::begin() {
     uint8_t id = getChipID();
     std::cout << "Read IMU WHO_AM_I: 0x" << std::hex << (int)id << std::dec << std::endl;
 
-    // Skip ID check for now
+    // Skip ID check, should be 0x69 for LSM6DS33 but is returning 0x6A
     // if (id != 0x69) { std::cerr << "Unexpected IMU ID: 0x" << std::hex << (int)id << std::dec << std::endl; return false; }
 
     writeRegister(CTRL1_XL, 0x40); // accel 104 Hz ±2g

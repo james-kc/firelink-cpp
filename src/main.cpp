@@ -40,4 +40,23 @@ int main() {
     }
 
     return 0;
+
+    // GPS Test
+    // GPS gps;
+    // if (!gps.begin()) return 1;
+
+    // while (true) {
+    //     double lat, lon, alt;
+    //     int fix, sats;
+    //     if (gps.getPosition(lat, lon, alt, fix, sats)) {
+    //         std::cout << "Lat: " << lat << ", Lon: " << lon
+    //                   << ", Alt: " << alt << " m"
+    //                   << ", Fix: " << fix
+    //                   << ", Sats: " << sats << std::endl;
+    //     } else {
+    //         std::cout << "No valid GPS data..." << std::endl;
+    //     }
+    //     std::this_thread::sleep_for(std::chrono::seconds(1));
+    // }
+
 }
