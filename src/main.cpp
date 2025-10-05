@@ -57,7 +57,7 @@ int main() {
         } else {
             std::cout << "No valid GPS data..." << std::endl;
         }
-        std::this_thread::sleep_for(std::chrono::seconds(1));
+        sleep(1);
     }
 
 }
