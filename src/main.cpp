@@ -87,7 +87,7 @@ int main() {
     // Play a short melody
     int melody[] = {262, 330, 392}; // C4-E4-G4
     for (int note : melody) {
-        buzzer.tone(note, 150);
+        buzzer.tone(note, 175);
     }
 
 }
