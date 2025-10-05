@@ -37,10 +37,11 @@ void BuzzerPWM::tone(int frequency, int duration_ms) {
     }
 }
 
-void BuzzerPWM::playMelody(int notes[], int durations[], int numNotes) {
-    for (int i = 0; i < numNotes; ++i) {
+void BuzzerPWM::playMelody(int notes[], int durations[]) {
+    size_t len = std::min(notes.size(), durations.size());
+    for (size_t i = 0; i < len; ++i) {
         tone(notes[i], durations[i]);
-        usleep(durations[i] * 1000);
+        usleep(durations[i] * 50);
     }
 }
 
