@@ -9,7 +9,7 @@
 
 // Default I2C address for PA1010D is 0x10
 
-GPS::GPS(uint8_t address) : i2c_addr(address), fd(-1) {}
+GPS::GPS(uint8_t address) : fd(-1), i2c_addr(address) {}
 
 bool GPS::begin() {
     const char *dev = "/dev/i2c-1";

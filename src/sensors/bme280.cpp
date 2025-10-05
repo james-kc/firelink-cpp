@@ -23,7 +23,7 @@
 
 
 BME280::BME280(const std::string &i2c_dev, uint8_t address)
-    : i2c_addr(address), fd(-1), t_fine(0) 
+    : fd(-1), i2c_addr(address), t_fine(0) 
 {
     fd = open(i2c_dev.c_str(), O_RDWR);
     if (fd < 0) {
