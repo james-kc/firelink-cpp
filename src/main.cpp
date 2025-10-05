@@ -90,4 +90,10 @@ int main() {
         buzzer.tone(note, 175);
     }
 
+    // Play a short melody, double speed
+    int melody[] = {262, 330, 392, 262, 330, 392}; // C4-E4-G4
+    for (int note : melody) {
+        buzzer.tone(note, 87.5);
+    }
+
 }
