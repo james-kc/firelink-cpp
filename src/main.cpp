@@ -85,9 +85,9 @@ int main() {
     std::this_thread::sleep_for(std::chrono::milliseconds(600));
 
     // Play a short melody
-    int melody[] = {262, 294, 330, 349, 392}; // C4-D4-E4-F4-G4
+    int melody[] = {262, 330, 392}; // C4-D4-E4-F4-G4
     for (int note : melody) {
-        buzzer.tone(note, 300);
+        buzzer.tone(note, 150);
         std::this_thread::sleep_for(std::chrono::milliseconds(350));
     }
 
