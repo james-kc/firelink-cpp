@@ -1,5 +1,6 @@
 #include "sensors/bme280.h"
 #include "sensors/imu.h"
+#include "sensors/gps.h"
 #include <iostream>
 #include <unistd.h>
 
