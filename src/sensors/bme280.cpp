@@ -1,4 +1,4 @@
-#include "bme280.h"
+#include "sensors/bme280.h"
 #include <fcntl.h>
 #include <unistd.h>
 #include <sys/ioctl.h>
