@@ -107,5 +107,11 @@ int main() {
 
     buzzer.playMelody(chestOpen, durations);
 
+    // C major “chest open” melody (approximation)
+    std::vector<int> chestOpen2 = { 440, 466, 494, 523 }; // A4, Bb4, B4, C5
+    std::vector<int> durations2 = { 100, 100, 100, 600 };  // ms per note
+
+    buzzer.playMelody(chestOpen2, durations2);
+
 
 }
