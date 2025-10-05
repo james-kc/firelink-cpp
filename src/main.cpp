@@ -88,7 +88,8 @@ int main() {
     // int melody[] = {262, 330, 392}; // C4-E4-G4
     int melody[] = {65, 82, 98, 131, 165, 196, 262, 330, 392, 523, 659, 784}; // C4-E4-G4
     for (int note : melody) {
-        buzzer.tone(note, 100);
+        buzzer.tone(note, 150);
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));
     }
 
 }
