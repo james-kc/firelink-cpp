@@ -1,4 +1,7 @@
 #include "outputs/buzzer_pwm.h"
+#include <vector>
+#include <algorithm>
+#include <unistd.h>
 
 BuzzerPWM::BuzzerPWM(unsigned int pin) : gpio_pin(pin), chip(nullptr), line(nullptr) {}
 
@@ -37,11 +40,11 @@ void BuzzerPWM::tone(int frequency, int duration_ms) {
     }
 }
 
-void BuzzerPWM::playMelody(int notes[], int durations[]) {
+void BuzzerPWM::playMelody(const std::vector<int> &notes, const std::vector<int> &durations) {
     size_t len = std::min(notes.size(), durations.size());
     for (size_t i = 0; i < len; ++i) {
         tone(notes[i], durations[i]);
-        usleep(durations[i] * 50);
+        usleep(durations[i] * 1000);
     }
 }
 
