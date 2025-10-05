@@ -90,6 +90,8 @@ int main() {
         buzzer.tone(note, 175);
     }
 
+    std::this_thread::sleep_for(std::chrono::milliseconds(600));
+
     // Play a short melody, double speed
     int melody2[] = {262, 330, 392, 262, 330, 392}; // C4-E4-G4
     for (int note : melody2) {
