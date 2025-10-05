@@ -5,7 +5,7 @@
 
 int main() {
 
-    // // BME280 Test
+    // BME280 Test
     // BME280 bme;
     // bme.begin();
     // float pad_pressure = bme.calibrateAltitude();
@@ -22,7 +22,7 @@ int main() {
     //     sleep(1);
     // }
 
-    IMU Test
+    // IMU Test
     IMU imu;
     if (!imu.begin()) { std::cerr << "Failed to initialize IMU" << std::endl; return 1; }
 
