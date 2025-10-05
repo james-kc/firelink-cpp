@@ -103,7 +103,7 @@ int main() {
     std::vector<int> chestOpen = { 523, 659, 783, 1046 }; // C5, E5, G5, C6
     std::vector<int> durations = { 100, 100, 100, 150 };  // ms per note
 
-    buzzer.playMelody(chestNotes, durations);
+    buzzer.playMelody(chestOpen, durations);
 
 
 }
