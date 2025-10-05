@@ -85,14 +85,14 @@ int main() {
     std::this_thread::sleep_for(std::chrono::milliseconds(600));
 
     // Play a short melody
-    int melody[] = {262, 330, 392}; // C4-E4-G4
-    for (int note : melody) {
+    int melody1[] = {262, 330, 392}; // C4-E4-G4
+    for (int note : melody1) {
         buzzer.tone(note, 175);
     }
 
     // Play a short melody, double speed
-    melody = {262, 330, 392, 262, 330, 392}; // C4-E4-G4
-    for (int note : melody) {
+    int melody2[] = {262, 330, 392, 262, 330, 392}; // C4-E4-G4
+    for (int note : melody2) {
         buzzer.tone(note, 87.5);
     }
 
