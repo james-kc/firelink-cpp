@@ -10,7 +10,7 @@ SRC := $(foreach dir,$(SRC_DIRS),$(wildcard $(dir)/*.cpp))
 OBJ := $(SRC:.cpp=.o)
 
 TARGET := firelink
-LIBS := -lm
+LIBS := -lm -lgpiod   # <-- link libgpiod here
 
 all: $(TARGET)
 

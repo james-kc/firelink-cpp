@@ -1,65 +1,51 @@
 #include "outputs/buzzer_pwm.h"
-#include <iostream>
-#include <fstream>
-#include <thread>
-#include <chrono>
 
-BuzzerPWM::BuzzerPWM(uint8_t gpio_pin) : pin(gpio_pin), tone_active(false) {}
+BuzzerPWM::BuzzerPWM(unsigned int pin) : gpio_pin(pin), chip(nullptr), line(nullptr) {}
 
 bool BuzzerPWM::begin() {
-    std::ofstream exportFile("/sys/class/gpio/export");
-    if (!exportFile.is_open()) {
-        std::cerr << "Failed to open /sys/class/gpio/export. Are you root?" << std::endl;
-        return false;
-    }
-    exportFile << (int)pin;
-    exportFile.close();
+    chip = gpiod_chip_open_by_name("gpiochip0");
+    if (!chip) { std::cerr << "Failed to open gpiochip0\n"; return false; }
 
-    std::ofstream dirFile("/sys/class/gpio/gpio" + std::to_string(pin) + "/direction");
-    if (!dirFile.is_open()) {
-        std::cerr << "Failed to set GPIO direction." << std::endl;
+    line = gpiod_chip_get_line(chip, gpio_pin);
+    if (!line) { std::cerr << "Failed to get line\n"; return false; }
+
+    if (gpiod_line_request_output(line, "firelink-buzzer-pwm", 0) < 0) {
+        std::cerr << "Failed to request output\n";
         return false;
     }
-    dirFile << "out";
-    dirFile.close();
+
     return true;
 }
 
-void BuzzerPWM::writeGPIO(const char *value) {
-    std::ofstream valueFile("/sys/class/gpio/gpio" + std::to_string(pin) + "/value");
-    if (valueFile.is_open()) valueFile << value;
-}
-
-void BuzzerPWM::on() { writeGPIO("1"); }
-void BuzzerPWM::off() { writeGPIO("0"); }
-
 void BuzzerPWM::beep(int duration_ms) {
-    on();
-    std::this_thread::sleep_for(std::chrono::milliseconds(duration_ms));
-    off();
+    gpiod_line_set_value(line, 1);
+    usleep(duration_ms * 1000);
+    gpiod_line_set_value(line, 0);
 }
 
 void BuzzerPWM::tone(int frequency, int duration_ms) {
-    if (tone_active) return; // ignore if already playing
+    if (frequency <= 0) return;
 
-    tone_active = true;
-    std::thread([=]() {
-        int period_us = 1000000 / frequency; // microseconds per cycle
-        int half_period = period_us / 2;
-        int elapsed = 0;
+    int period_us = 1000000 / frequency;
+    int cycles = duration_ms * 1000 / period_us;
 
-        while (tone_active && elapsed < duration_ms * 1000) {
-            writeGPIO("1");
-            std::this_thread::sleep_for(std::chrono::microseconds(half_period));
-            writeGPIO("0");
-            std::this_thread::sleep_for(std::chrono::microseconds(half_period));
-            elapsed += period_us;
-        }
-        writeGPIO("0");
-        tone_active = false;
-    }).detach();
+    for (int i = 0; i < cycles; ++i) {
+        gpiod_line_set_value(line, 1);
+        usleep(period_us / 2);
+        gpiod_line_set_value(line, 0);
+        usleep(period_us / 2);
+    }
 }
 
-void BuzzerPWM::noTone() {
-    tone_active = false; // stops the detached thread
+void BuzzerPWM::playMelody(const std::vector<int> &notes, const std::vector<int> &durations) {
+    size_t len = std::min(notes.size(), durations.size());
+    for (size_t i = 0; i < len; ++i) {
+        tone(notes[i], durations[i]);
+        usleep(1000 * 50); // 50ms gap between notes
+    }
+}
+
+BuzzerPWM::~BuzzerPWM() {
+    if (line) gpiod_line_release(line);
+    if (chip) gpiod_chip_close(chip);
 }

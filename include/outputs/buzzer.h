@@ -1,19 +1,24 @@
 #ifndef BUZZER_H
 #define BUZZER_H
 
-#include <cstdint>
+#include <gpiod.h>
+#include <unistd.h>
+#include <iostream>
 
 class Buzzer {
 public:
-    Buzzer(uint8_t gpio_pin = 4);
+    Buzzer(unsigned int pin = 4);
     bool begin();
     void on();
     void off();
-    void beep(int duration_ms); // turns on for duration_ms milliseconds
+    void beep(int duration_ms);
+
+    ~Buzzer();
 
 private:
-    uint8_t pin;
-    void writeGPIO(const char *value);
+    unsigned int gpio_pin;
+    gpiod_chip *chip;
+    gpiod_line *line;
 };
 
 #endif
