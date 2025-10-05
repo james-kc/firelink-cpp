@@ -7,7 +7,7 @@ SENSOR_SRC := src/sensors
 OUTPUT_SRC := src/outputs
 SRC := src/main.cpp $(SENSOR_SRC)/*.cpp $(OUTPUT_SRC)/*.cpp
 
-# Object files
+# Generate object files for each source
 OBJ := $(SRC:.cpp=.o)
 
 # Target executable
@@ -21,12 +21,12 @@ all: $(TARGET)
 
 # Link executable from object files
 $(TARGET): $(OBJ)
-	$(CXX) $(CXXFLAGS) $(OBJ) -o $(TARGET) $(LIBS)
+	$(CXX) $(CXXFLAGS) $(OBJ) -o $@ $(LIBS)
 
-# Compile .cpp into .o
+# Compile each .cpp into its own .o
 %.o: %.cpp
 	$(CXX) $(CXXFLAGS) -c $< -o $@
 
-# Clean object files and executable
+# Clean all object files and the executable
 clean:
 	rm -f $(OBJ) $(TARGET)
