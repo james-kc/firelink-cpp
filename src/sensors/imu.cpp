@@ -13,7 +13,7 @@
 #define OUTX_L_G        0x22
 #define OUTX_L_XL       0x28
 
-IMU::IMU(uint8_t address) : i2c_addr(address), fd(-1) {}
+IMU::IMU(uint8_t address) : fd(-1), i2c_addr(address) {}
 
 bool IMU::begin() {
     const char *dev = "/dev/i2c-1";
