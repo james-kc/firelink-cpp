@@ -7,19 +7,26 @@ SENSOR_SRC := src/sensors
 OUTPUT_SRC := src/outputs
 SRC := src/main.cpp $(SENSOR_SRC)/*.cpp $(OUTPUT_SRC)/*.cpp
 
-# Output
+# Object files
+OBJ := $(SRC:.cpp=.o)
+
+# Target executable
 TARGET := firelink
 
-# Math library
+# Libraries
 LIBS := -lm
 
 # Default target
 all: $(TARGET)
 
-# Build executable
-$(TARGET): $(SRC)
-	$(CXX) $(CXXFLAGS) $(SRC) -o $(TARGET) $(LIBS)
+# Link executable from object files
+$(TARGET): $(OBJ)
+	$(CXX) $(CXXFLAGS) $(OBJ) -o $(TARGET) $(LIBS)
 
-# Clean object files / executable
+# Compile .cpp into .o
+%.o: %.cpp
+	$(CXX) $(CXXFLAGS) -c $< -o $@
+
+# Clean object files and executable
 clean:
-	rm -f $(TARGET)
+	rm -f $(OBJ) $(TARGET)
