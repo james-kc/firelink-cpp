@@ -13,6 +13,10 @@ Repo containing all code required for the avionics and analysis of the data from
 
 ## Compilation:
 
+```make```
+
+or
+
 ```
-g++ -Wall -Wextra -std=c++17 -Iinclude src/main.cpp src/sensors/*.cpp -o firelink -lm
+g++ -Wall -Wextra -std=c++17 -Iinclude src/main.cpp src/sensors/*.cpp src/outputs/*.cpp -o firelink -lm
 ```
