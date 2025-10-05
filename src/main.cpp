@@ -103,7 +103,7 @@ int main() {
     int durations[]  = {100, 100, 100, 150};  // milliseconds per note
     int numNotes = sizeof(chestNotes) / sizeof(chestNotes[0]);
 
-    buzzer.playMelody(chestNotes, durations, 4);
+    buzzer.playMelody(chestNotes, durations);
 
 
 }
