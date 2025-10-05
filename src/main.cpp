@@ -2,6 +2,7 @@
 #include "sensors/imu.h"
 #include "sensors/gps.h"
 #include "outputs/buzzer.h"
+#include "outputs/buzzer_pwm.h"
 #include <iostream>
 #include <unistd.h>
 
@@ -62,12 +63,30 @@ int main() {
     // }
 
     // Buzzer Test
-    Buzzer buzzer;
+    // Buzzer buzzer;
+    // if (!buzzer.begin()) return 1;
+
+    // while (true) {
+    //     buzzer.beep(200); // beep 200ms
+    //     sleep(1);
+    // }
+
+    // Buzzer PWM Test
+    BuzzerPWM buzzer;
     if (!buzzer.begin()) return 1;
 
-    while (true) {
-        buzzer.beep(200); // beep 200ms
-        sleep(1);
+    // Simple beep
+    buzzer.beep(200);
+
+    // Play 1kHz tone for 500ms
+    buzzer.tone(1000, 500);
+    std::this_thread::sleep_for(std::chrono::milliseconds(600));
+
+    // Play a short melody
+    int melody[] = {262, 294, 330, 349, 392}; // C4-D4-E4-F4-G4
+    for (int note : melody) {
+        buzzer.tone(note, 300);
+        std::this_thread::sleep_for(std::chrono::milliseconds(350));
     }
 
 }
