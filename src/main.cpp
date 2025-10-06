@@ -87,7 +87,9 @@ int main() {
     std::this_thread::sleep_for(std::chrono::milliseconds(600));
 
     // Play a short major melody
-    int melody1[] = {262, 330, 392}; // C4-E4-G4
+    int melody1[] = {
+        Notes::C4, Notes::E4, Notes::G4
+    };
     for (int note : melody1) {
         buzzer.tone(note, 175);
     }
@@ -95,21 +97,23 @@ int main() {
     std::this_thread::sleep_for(std::chrono::milliseconds(600));
     
     // Play a short minor melody
-    int melody2[] = {262, 311, 392}; // C4-Eb4-G4
+    int melody2[] = {
+        Notes::C4, Notes::Eb4, Notes::G4
+    };
     for (int note : melody2) {
         buzzer.tone(note, 175);
     }
 
     std::this_thread::sleep_for(std::chrono::milliseconds(600));
 
-    // C major “chest open” melody (approximation)
-    // std::vector<int> chestOpen = { 880, 932, 988, 1047 }; // A5, Bb5, B5, C6
+    // Majora's Mask "Item Catch" (Chest Open) melody
     std::vector<int> chestOpen = {
         Notes::A5, Notes::Bb5, Notes::B5, Notes::C6
-    }; // A5, Bb5, B5, C6
-    std::vector<int> durations = { 100, 100, 100, 600 };  // ms per note
+    };
+    std::vector<int> durations = {
+        100, 100, 100, 600 
+    };  // ms per note
 
     buzzer.playMelody(chestOpen, durations);
-
 
 }
