@@ -105,7 +105,7 @@ int main() {
     }
 
     std::this_thread::sleep_for(std::chrono::milliseconds(600));
-
+    
     // Majora's Mask "Item Catch" (Chest Open) melody
     std::vector<int> chestOpen = {
         Notes::A5, Notes::Bb5, Notes::B5, Notes::C6
@@ -115,5 +115,21 @@ int main() {
     };  // ms per note
 
     buzzer.playMelody(chestOpen, durations);
+    
+    std::this_thread::sleep_for(std::chrono::milliseconds(600));
+
+    // The Legend of Zelda: Majora's Mask - "Get Item" Fanfare
+    std::vector<int> getItemNotes = {
+        Notes::C5, Notes::E5, Notes::G5, Notes::C6,   // rising triad
+        Notes::E6, Notes::D6, Notes::C6                // resolving flourish
+    };
+
+    std::vector<int> getItemDurations = {
+        150, 150, 150, 250,   // bright, ascending start
+        150, 150, 400         // ending hold
+    };
+
+    buzzer.playMelody(getItemNotes, getItemDurations);
+
 
 }
