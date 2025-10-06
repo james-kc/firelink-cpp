@@ -5,7 +5,7 @@
 // Covers C2 to C6
 namespace Notes {
     constexpr int C2  = 65;
-    constexpr int Cs2 = 69;  // C#2 / Db2
+    constexpr int Cs2 = 69;
     constexpr int D2  = 73;
     constexpr int Eb2 = 78;
     constexpr int E2  = 82;
