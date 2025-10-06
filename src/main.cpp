@@ -7,8 +7,22 @@
 #include <thread>
 #include <chrono>
 #include <iostream>
-#include <unistd.h>
 #include <vector>
+#include <cmath>
+#include <iomanip>
+
+void printGyroBars(float gx, float gy, float gz) {
+    int scale = 10; // adjust sensitivity
+    int lenX = std::min(40, std::max(0, (int)std::round(std::abs(gx) * scale)));
+    int lenY = std::min(40, std::max(0, (int)std::round(std::abs(gy) * scale)));
+    int lenZ = std::min(40, std::max(0, (int)std::round(std::abs(gz) * scale)));
+
+    std::cout << "\r"; // return to start of line
+    std::cout << "X [" << std::string(lenX, '=') << std::setw(40 - lenX) << "] "
+              << "Y [" << std::string(lenY, '=') << std::setw(40 - lenY) << "] "
+              << "Z [" << std::string(lenZ, '=') << std::setw(40 - lenZ) << "]   ";
+    std::cout.flush();
+}
 
 int main() {
 
@@ -30,41 +44,44 @@ int main() {
     // }
 
     // IMU Test
-    // IMU imu;
-    // if (!imu.begin()) { std::cerr << "Failed to initialize IMU" << std::endl; return 1; }
+    IMU imu;
+    if (!imu.begin()) { std::cerr << "Failed to initialize IMU" << std::endl; return 1; }
 
-    // std::cout << "IMU initialized. ID: 0x" << std::hex << (int)imu.getChipID() << std::dec << std::endl;
-
-    // while (true) {
-    //     float ax, ay, az, gx, gy, gz;
-    //     imu.readAccel(ax, ay, az);
-    //     imu.readGyro(gx, gy, gz);
-
-    //     std::cout << "Accel [m/s²]: X=" << ax << " Y=" << ay << " Z=" << az
-    //               << " | Gyro [°/s]: X=" << gx << " Y=" << gy << " Z=" << gz << std::endl;
-
-    //     std::this_thread::sleep_for(std::chrono::seconds(1));
-    // }
-
-    // return 0;
-
-    // GPS Test
-    GPS gps;
-    if (!gps.begin()) return 1;
+    std::cout << "IMU initialized. ID: 0x" << std::hex << (int)imu.getChipID() << std::dec << std::endl;
 
     while (true) {
-        double lat, lon, alt;
-        int fix, sats;
-        if (gps.getPosition(lat, lon, alt, fix, sats)) {
-            std::cout << "Lat: " << lat << ", Lon: " << lon
-                      << ", Alt: " << alt << " m"
-                      << ", Fix: " << fix
-                      << ", Sats: " << sats << std::endl;
-        } else {
-            std::cout << "No valid GPS data..." << std::endl;
-        }
-        std::this_thread::sleep_for(std::chrono::seconds(1));
+        float ax, ay, az, gx, gy, gz;
+        imu.readAccel(ax, ay, az);
+        imu.readGyro(gx, gy, gz);
+
+        // std::cout << "Accel [m/s²]: X=" << ax << " Y=" << ay << " Z=" << az
+        //           << " | Gyro [°/s]: X=" << gx << " Y=" << gy << " Z=" << gz << std::endl;
+
+        // std::this_thread::sleep_for(std::chrono::seconds(1));
+
+        printGyroBars(gx, gy, gz);
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
     }
+
+    return 0;
+
+    // GPS Test
+    // GPS gps;
+    // if (!gps.begin()) return 1;
+
+    // while (true) {
+    //     double lat, lon, alt;
+    //     int fix, sats;
+    //     if (gps.getPosition(lat, lon, alt, fix, sats)) {
+    //         std::cout << "Lat: " << lat << ", Lon: " << lon
+    //                   << ", Alt: " << alt << " m"
+    //                   << ", Fix: " << fix
+    //                   << ", Sats: " << sats << std::endl;
+    //     } else {
+    //         std::cout << "No valid GPS data..." << std::endl;
+    //     }
+    //     std::this_thread::sleep_for(std::chrono::seconds(1));
+    // }
 
     // Buzzer Test
     // Buzzer buzzer;
