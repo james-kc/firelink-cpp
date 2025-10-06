@@ -26,8 +26,7 @@ void printGyroBars(float gx, float gy, float gz) {
 }
 
 void printTrace(float gx) {
-    int mid = 40;
-    int pos = std::clamp(mid + (int)(gx * 10), 0, 79);
+    int pos = std::clamp(gx, -20, 20);
 
     for (int i = 0; i < 80; ++i)
         std::cout << (i == pos ? '*' : ' ');
@@ -71,7 +70,7 @@ int main() {
 
         // printGyroBars(gx, gy, gz);
         printTrace(az);
-        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        std::this_thread::sleep_for(std::chrono::milliseconds(5));
     }
 
     return 0;
