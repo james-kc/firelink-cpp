@@ -70,7 +70,7 @@ int main() {
         // std::this_thread::sleep_for(std::chrono::seconds(1));
 
         // printGyroBars(gx, gy, gz);
-        printGyroTrace(az);
+        printTrace(az);
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
     }
 
