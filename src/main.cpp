@@ -25,15 +25,6 @@ void printGyroBars(float gx, float gy, float gz) {
     std::cout.flush();
 }
 
-void printGyroTrace(float gx) {
-    int mid = 40;
-    int pos = std::clamp(mid + (int)(gx * 10), 0, 79);
-
-    for (int i = 0; i < 80; ++i)
-        std::cout << (i == pos ? '*' : ' ');
-    std::cout << '\n';
-}
-
 int main() {
 
     // BME280 Test
@@ -69,8 +60,13 @@ int main() {
 
         // std::this_thread::sleep_for(std::chrono::seconds(1));
 
+        std::cout << "\r"; // return to start of line
+        std::cout << "X [" << gx << "] "
+                << "Y [" << gy << "] "
+                << "Z [" << gz << "]   ";
+        std::cout.flush();
+
         // printGyroBars(gx, gy, gz);
-        printGyroTrace(gz);
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
     }
 
