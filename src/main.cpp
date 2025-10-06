@@ -85,12 +85,20 @@ int main() {
     buzzer.tone(1000, 500);
     std::this_thread::sleep_for(std::chrono::milliseconds(600));
 
-    // Play a short melody
+    // Play a short major melody
     int melody[] = {262, 330, 392}; // C4-E4-G4
     for (int note : melody) {
         buzzer.tone(note, 175);
     }
 
+    std::this_thread::sleep_for(std::chrono::milliseconds(600));
+    
+    // Play a short minor melody
+    int melody[] = {262, 311, 392}; // C4-Eb4-G4
+    for (int note : melody) {
+        buzzer.tone(note, 175);
+    }
+    
     std::this_thread::sleep_for(std::chrono::milliseconds(600));
 
     // C major “chest open” melody (approximation)
