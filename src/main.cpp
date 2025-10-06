@@ -3,6 +3,7 @@
 #include "sensors/gps.h"
 #include "outputs/buzzer.h"
 #include "outputs/buzzer_pwm.h"
+#include "notes.h"
 #include <thread>
 #include <chrono>
 #include <iostream>
@@ -102,7 +103,10 @@ int main() {
     std::this_thread::sleep_for(std::chrono::milliseconds(600));
 
     // C major “chest open” melody (approximation)
-    std::vector<int> chestOpen = { 880, 932, 988, 1047 }; // A5, Bb5, B5, C6
+    // std::vector<int> chestOpen = { 880, 932, 988, 1047 }; // A5, Bb5, B5, C6
+    std::vector<int> chestOpen = {
+        Notes::A5, Notes::Bb5, Notes::B5, Notes::C6
+    }; // A5, Bb5, B5, C6
     std::vector<int> durations = { 100, 100, 100, 600 };  // ms per note
 
     buzzer.playMelody(chestOpen, durations);
