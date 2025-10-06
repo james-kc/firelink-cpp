@@ -26,7 +26,7 @@ void printGyroBars(float gx, float gy, float gz) {
 }
 
 void printTrace(float gx) {
-    int pos = std::clamp(gx, -20, 20);
+    int pos = std::clamp((int)(gx), -20, 20);
 
     for (int i = 0; i < 80; ++i)
         std::cout << (i == pos ? '*' : ' ');
