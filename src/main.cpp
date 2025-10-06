@@ -25,7 +25,7 @@ void printGyroBars(float gx, float gy, float gz) {
     std::cout.flush();
 }
 
-void printoTrace(float gx) {
+void printTrace(float gx) {
     int mid = 40;
     int pos = std::clamp(mid + (int)(gx * 10), 0, 79);
 
