@@ -10,6 +10,7 @@
 #include <vector>
 #include <cmath>
 #include <iomanip>
+#include <algorithm>
 
 void printGyroBars(float gx, float gy, float gz) {
     int scale = 10; // adjust sensitivity
