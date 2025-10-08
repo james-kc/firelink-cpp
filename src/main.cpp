@@ -76,71 +76,71 @@ int main() {
     // return 0;
 
     // GPS Test
-    // GPS gps;
-    // if (!gps.begin()) return 1;
+    GPS gps;
+    if (!gps.begin()) return 1;
 
-    // while (true) {
-    //     double lat, lon, alt;
-    //     int fix, sats;
-    //     if (gps.getPosition(lat, lon, alt, fix, sats)) {
-    //         std::cout << "Lat: " << lat << ", Lon: " << lon
-    //                   << ", Alt: " << alt << " m"
-    //                   << ", Fix: " << fix
-    //                   << ", Sats: " << sats << std::endl;
-    //     } else {
-    //         std::cout << "No valid GPS data..." << std::endl;
-    //     }
-    //     std::this_thread::sleep_for(std::chrono::seconds(1));
-    // }
+    while (true) {
+        double lat, lon, alt;
+        int fix, sats;
+        if (gps.getPosition(lat, lon, alt, fix, sats)) {
+            std::cout << "Lat: " << lat << ", Lon: " << lon
+                      << ", Alt: " << alt << " m"
+                      << ", Fix: " << fix
+                      << ", Sats: " << sats << std::endl;
+        } else {
+            std::cout << "No valid GPS data..." << std::endl;
+        }
+        std::this_thread::sleep_for(std::chrono::seconds(1));
+    }
 
-    // Buzzer Test
-    // Buzzer buzzer;
-    // if (!buzzer.begin()) return 1;
-
-    // while (true) {
-    //     buzzer.beep(200); // beep 200ms
-    //     std::this_thread::sleep_for(std::chrono::seconds(1));
-    // }
-
-    // Buzzer PWM Test
-    BuzzerPWM buzzer;
+    Buzzer Test
+    Buzzer buzzer;
     if (!buzzer.begin()) return 1;
 
-    // Simple beep
-    buzzer.beep(200);
-
-    // Play 1kHz tone for 500ms
-    buzzer.tone(1000, 500);
-    std::this_thread::sleep_for(std::chrono::milliseconds(600));
-
-    // Play a short major melody
-    int melody1[] = {
-        Notes::C4, Notes::E4, Notes::G4
-    };
-    for (int note : melody1) {
-        buzzer.tone(note, 175);
+    while (true) {
+        buzzer.beep(200); // beep 200ms
+        std::this_thread::sleep_for(std::chrono::seconds(1));
     }
 
-    std::this_thread::sleep_for(std::chrono::milliseconds(600));
-    
-    // Play a short minor melody
-    int melody2[] = {
-        Notes::C4, Notes::Eb4, Notes::G4
-    };
-    for (int note : melody2) {
-        buzzer.tone(note, 175);
-    }
+    // Buzzer PWM Test
+    // BuzzerPWM buzzer;
+    // if (!buzzer.begin()) return 1;
 
-    std::this_thread::sleep_for(std::chrono::milliseconds(600));
-    
-    // Majora's Mask "Item Catch" (Chest Open) melody
-    std::vector<int> chestOpen = {
-        Notes::A5, Notes::Bb5, Notes::B5, Notes::C6
-    };
-    std::vector<int> durations = {
-        100, 100, 100, 600 
-    };  // ms per note
+    // // Simple beep
+    // buzzer.beep(200);
 
-    buzzer.playMelody(chestOpen, durations);
+    // // Play 1kHz tone for 500ms
+    // buzzer.tone(1000, 500);
+    // std::this_thread::sleep_for(std::chrono::milliseconds(600));
+
+    // // Play a short major melody
+    // int melody1[] = {
+    //     Notes::C4, Notes::E4, Notes::G4
+    // };
+    // for (int note : melody1) {
+    //     buzzer.tone(note, 175);
+    // }
+
+    // std::this_thread::sleep_for(std::chrono::milliseconds(600));
+    
+    // // Play a short minor melody
+    // int melody2[] = {
+    //     Notes::C4, Notes::Eb4, Notes::G4
+    // };
+    // for (int note : melody2) {
+    //     buzzer.tone(note, 175);
+    // }
+
+    // std::this_thread::sleep_for(std::chrono::milliseconds(600));
+    
+    // // Majora's Mask "Item Catch" (Chest Open) melody
+    // std::vector<int> chestOpen = {
+    //     Notes::A5, Notes::Bb5, Notes::B5, Notes::C6
+    // };
+    // std::vector<int> durations = {
+    //     100, 100, 100, 600 
+    // };  // ms per note
+
+    // buzzer.playMelody(chestOpen, durations);
 
 }
