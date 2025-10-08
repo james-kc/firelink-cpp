@@ -36,21 +36,21 @@ void printTrace(float gx) {
 int main() {
 
     // BME280 Test
-    BME280 bme;
-    bme.begin();
-    float pad_pressure = bme.calibrateAltitude();
+    // BME280 bme;
+    // bme.begin();
+    // float pad_pressure = bme.calibrateAltitude();
 
-    while (true) {
-        float temp = bme.readTemperature();
-        float pressure = bme.readPressure();
-        float altitude = bme.readAltitude(pad_pressure);
-        float humidity = bme.readHumidity();
-        std::cout << "Temp: " << temp << " °C, "
-                  << "Pressure: " << pressure << " hPa, "
-                  << "Altitude: " << altitude << " m, "
-                  << "Humidity: " << humidity << " %" << std::endl;
-        std::this_thread::sleep_for(std::chrono::seconds(1));
-    }
+    // while (true) {
+    //     float temp = bme.readTemperature();
+    //     float pressure = bme.readPressure();
+    //     float altitude = bme.readAltitude(pad_pressure);
+    //     float humidity = bme.readHumidity();
+    //     std::cout << "Temp: " << temp << " °C, "
+    //               << "Pressure: " << pressure << " hPa, "
+    //               << "Altitude: " << altitude << " m, "
+    //               << "Humidity: " << humidity << " %" << std::endl;
+    //     std::this_thread::sleep_for(std::chrono::seconds(1));
+    // }
 
     // IMU Test
     // IMU imu;
@@ -103,44 +103,44 @@ int main() {
     // }
 
     // Buzzer PWM Test
-    // BuzzerPWM buzzer;
-    // if (!buzzer.begin()) return 1;
+    BuzzerPWM buzzer;
+    if (!buzzer.begin()) return 1;
 
-    // // Simple beep
-    // buzzer.beep(200);
+    // Simple beep
+    buzzer.beep(200);
 
-    // // Play 1kHz tone for 500ms
-    // buzzer.tone(1000, 500);
-    // std::this_thread::sleep_for(std::chrono::milliseconds(600));
+    // Play 1kHz tone for 500ms
+    buzzer.tone(1000, 500);
+    std::this_thread::sleep_for(std::chrono::milliseconds(600));
 
-    // // Play a short major melody
-    // int melody1[] = {
-    //     Notes::C4, Notes::E4, Notes::G4
-    // };
-    // for (int note : melody1) {
-    //     buzzer.tone(note, 175);
-    // }
+    // Play a short major melody
+    int melody1[] = {
+        Notes::C4, Notes::E4, Notes::G4
+    };
+    for (int note : melody1) {
+        buzzer.tone(note, 175);
+    }
 
-    // std::this_thread::sleep_for(std::chrono::milliseconds(600));
+    std::this_thread::sleep_for(std::chrono::milliseconds(600));
     
-    // // Play a short minor melody
-    // int melody2[] = {
-    //     Notes::C4, Notes::Eb4, Notes::G4
-    // };
-    // for (int note : melody2) {
-    //     buzzer.tone(note, 175);
-    // }
+    // Play a short minor melody
+    int melody2[] = {
+        Notes::C4, Notes::Eb4, Notes::G4
+    };
+    for (int note : melody2) {
+        buzzer.tone(note, 175);
+    }
 
-    // std::this_thread::sleep_for(std::chrono::milliseconds(600));
+    std::this_thread::sleep_for(std::chrono::milliseconds(600));
     
-    // // Majora's Mask "Item Catch" (Chest Open) melody
-    // std::vector<int> chestOpen = {
-    //     Notes::A5, Notes::Bb5, Notes::B5, Notes::C6
-    // };
-    // std::vector<int> durations = {
-    //     100, 100, 100, 600 
-    // };  // ms per note
+    // Majora's Mask "Item Catch" (Chest Open) melody
+    std::vector<int> chestOpen = {
+        Notes::A5, Notes::Bb5, Notes::B5, Notes::C6
+    };
+    std::vector<int> durations = {
+        100, 100, 100, 600 
+    };  // ms per note
 
-    // buzzer.playMelody(chestOpen, durations);
+    buzzer.playMelody(chestOpen, durations);
 
 }
