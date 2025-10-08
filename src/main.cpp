@@ -93,14 +93,14 @@ int main() {
         std::this_thread::sleep_for(std::chrono::seconds(1));
     }
 
-    Buzzer Test
-    Buzzer buzzer;
-    if (!buzzer.begin()) return 1;
+    // // Buzzer Test
+    // Buzzer buzzer;
+    // if (!buzzer.begin()) return 1;
 
-    while (true) {
-        buzzer.beep(200); // beep 200ms
-        std::this_thread::sleep_for(std::chrono::seconds(1));
-    }
+    // while (true) {
+    //     buzzer.beep(200); // beep 200ms
+    //     std::this_thread::sleep_for(std::chrono::seconds(1));
+    // }
 
     // Buzzer PWM Test
     // BuzzerPWM buzzer;
