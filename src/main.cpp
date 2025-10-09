@@ -89,6 +89,9 @@ int main() {
                       << " | Alt: " << d.altitude_m << " m"
                       << std::endl;
         }
+        else {
+            std::cout << "No GPS fix..." << std::endl;
+        }
         std::this_thread::sleep_for(std::chrono::seconds(1));
     }
 
