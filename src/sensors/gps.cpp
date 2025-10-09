@@ -8,6 +8,20 @@
 #include <iomanip>
 #include <vector>
 #include <cmath>
+#include <algorithm> // for std::clamp, std::all_of
+#include <cctype>    // for std::isdigit
+
+// Helper to safely check if a string is numeric
+static bool isNumeric(const std::string &s) {
+    return !s.empty() && std::all_of(s.begin(), s.end(), [](unsigned char c) {
+        return std::isdigit(c) || c == '.' || c == '-' || c == '+';
+    });
+}
+
+// Helper to check string prefix (for C++17 compatibility)
+static bool startsWith(const std::string &s, const std::string &prefix) {
+    return s.rfind(prefix, 0) == 0;
+}
 
 GPS::GPS(const std::string &i2c_dev, uint8_t address)
     : fd(-1), i2c_addr(address) {
@@ -60,16 +74,17 @@ std::optional<GPSData> GPS::readData() {
     if (!lineOpt) return std::nullopt;
 
     const std::string &line = *lineOpt;
-    if (line.starts_with("$GPGGA") || line.starts_with("$GNGGA")) {
+
+    // Optional: uncomment to see incoming data
+    // std::cout << "[GPS] " << line << std::endl;
+
+    if (startsWith(line, "$GPGGA") || startsWith(line, "$GNGGA")) {
         return parseNMEA(line);
     }
     return std::nullopt;
 }
 
 bool GPS::hasFix(const std::string &nmea) {
-    auto partsStart = nmea.find(',');
-    if (partsStart == std::string::npos) return false;
-
     std::vector<std::string> tokens;
     std::stringstream ss(nmea);
     std::string token;
@@ -91,24 +106,37 @@ std::optional<GPSData> GPS::parseNMEA(const std::string &nmea) {
 
     GPSData data{};
     data.hasFix = tokens[6] != "0";
-    data.fixQuality = std::stoi(tokens[6]);
-    data.satellites = std::stoi(tokens[7]);
-    data.altitude_m = std::stod(tokens[9]);
 
-    // Parse latitude
-    if (!tokens[2].empty() && !tokens[3].empty()) {
+    // Fix quality
+    if (isNumeric(tokens[6])) data.fixQuality = std::stoi(tokens[6]);
+    else data.fixQuality = 0;
+
+    // Satellites
+    if (isNumeric(tokens[7])) data.satellites = std::stoi(tokens[7]);
+    else data.satellites = 0;
+
+    // Altitude
+    if (isNumeric(tokens[9])) data.altitude_m = std::stod(tokens[9]);
+    else data.altitude_m = 0.0;
+
+    // Latitude
+    if (isNumeric(tokens[2]) && !tokens[3].empty()) {
         double lat = std::stod(tokens[2].substr(0, 2))
                    + std::stod(tokens[2].substr(2)) / 60.0;
         if (tokens[3] == "S") lat = -lat;
         data.latitude = lat;
+    } else {
+        data.latitude = 0.0;
     }
 
-    // Parse longitude
-    if (!tokens[4].empty() && !tokens[5].empty()) {
+    // Longitude
+    if (isNumeric(tokens[4]) && !tokens[5].empty()) {
         double lon = std::stod(tokens[4].substr(0, 3))
                    + std::stod(tokens[4].substr(3)) / 60.0;
         if (tokens[5] == "W") lon = -lon;
         data.longitude = lon;
+    } else {
+        data.longitude = 0.0;
     }
 
     data.datetime = tokens[1]; // raw UTC time string
