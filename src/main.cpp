@@ -92,7 +92,7 @@ int main() {
         else {
             std::cout << "No GPS fix..." << std::endl;
         }
-        std::this_thread::sleep_for(std::chrono::seconds(1));
+        std::this_thread::sleep_for(std::chrono::seconds(0.5));
     }
 
     // // Buzzer Test
