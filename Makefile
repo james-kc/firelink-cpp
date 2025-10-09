@@ -1,6 +1,6 @@
 # Compiler and flags
 CXX := g++
-CXXFLAGS := -Wall -Wextra -std=c++17 -Iinclude
+CXXFLAGS := -Wall -Wextra -std=c++20 -Iinclude
 
 # Source directories
 SRC_DIRS := src src/sensors src/outputs
