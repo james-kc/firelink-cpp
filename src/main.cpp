@@ -77,18 +77,17 @@ int main() {
 
     // GPS Test
     GPS gps;
-    if (!gps.begin()) return 1;
+    gps.begin();
 
     while (true) {
-        double lat, lon, alt;
-        int fix, sats;
-        if (gps.getPosition(lat, lon, alt, fix, sats)) {
-            std::cout << "Lat: " << lat << ", Lon: " << lon
-                      << ", Alt: " << alt << " m"
-                      << ", Fix: " << fix
-                      << ", Sats: " << sats << std::endl;
-        } else {
-            std::cout << "No valid GPS data..." << std::endl;
+        auto dataOpt = gps.readData();
+        if (dataOpt && dataOpt->hasFix) {
+            const auto &d = *dataOpt;
+            std::cout << "Fix: " << d.fixQuality
+                      << " | Lat: " << d.latitude
+                      << " | Lon: " << d.longitude
+                      << " | Alt: " << d.altitude_m << " m"
+                      << std::endl;
         }
         std::this_thread::sleep_for(std::chrono::seconds(1));
     }

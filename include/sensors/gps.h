@@ -3,23 +3,36 @@
 
 #include <cstdint>
 #include <string>
+#include <optional>
+
+struct GPSData {
+    std::string datetime;
+    bool hasFix;
+    int fixQuality;
+    double latitude;
+    double longitude;
+    double altitude_m;
+    double speed_knots;
+    int satellites;
+};
 
 class GPS {
 public:
-    GPS(uint8_t address = 0x10);
+    GPS(const std::string &i2c_dev = "/dev/i2c-1", uint8_t address = 0x10);
+    ~GPS();
+
     bool begin();
-    bool readSentence(std::string &sentence);
-    bool getPosition(double &latitude, double &longitude, double &altitude, int &fixQuality, int &satellites);
+    std::optional<GPSData> readData();
+    void sendCommand(const std::string &cmd);
 
 private:
     int fd;
     uint8_t i2c_addr;
+    std::string buffer;
 
-    void writeRegister(uint8_t reg, uint8_t value);
-    uint8_t readRegister(uint8_t reg);
-    void readRaw(char *buffer, uint8_t len);
-
-    bool parseGGA(const std::string &sentence, double &latitude, double &longitude, double &altitude, int &fixQuality, int &satellites);
+    bool hasFix(const std::string &nmea);
+    std::optional<GPSData> parseNMEA(const std::string &nmea);
+    std::optional<std::string> readLine();
 };
 
-#endif
+#endif // GPS_H
