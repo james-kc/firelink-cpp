@@ -12,7 +12,7 @@ struct GPSData {
     double latitude;
     double longitude;
     double altitude_m;
-    double speed_knots;
+    double speed_kmh;
     int satellites;
 };
 
@@ -29,10 +29,12 @@ private:
     int fd;
     uint8_t i2c_addr;
     std::string buffer;
+    GPSData lastData;
 
     bool hasFix(const std::string &nmea);
-    std::optional<GPSData> parseNMEA(const std::string &nmea);
     std::optional<std::string> readLine();
+    std::optional<GPSData> parseGGA(const std::string &nmea);
+    std::optional<GPSData> parseRMC(const std::string &nmea);
 };
 
 #endif // GPS_H

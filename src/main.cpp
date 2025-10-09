@@ -83,11 +83,15 @@ int main() {
         auto dataOpt = gps.readData();
         if (dataOpt && dataOpt->hasFix) {
             const auto &d = *dataOpt;
+
             std::cout << "Fix: " << d.fixQuality
-                      << " | Lat: " << d.latitude
-                      << " | Lon: " << d.longitude
-                      << " | Alt: " << d.altitude_m << " m"
-                      << std::endl;
+                    << " | Sats: " << d.satellites
+                    << " | Lat: " << d.latitude
+                    << " | Lon: " << d.longitude
+                    << " | Alt: " << d.altitude_m << " m"
+                    << " | Speed: " << d.speed_kmh << " km/h"
+                    << std::endl;
+
         }
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
     }

@@ -8,17 +8,15 @@
 #include <iomanip>
 #include <vector>
 #include <cmath>
-#include <algorithm> // for std::clamp, std::all_of
-#include <cctype>    // for std::isdigit
+#include <algorithm>
+#include <cctype>
 
-// Helper to safely check if a string is numeric
 static bool isNumeric(const std::string &s) {
     return !s.empty() && std::all_of(s.begin(), s.end(), [](unsigned char c) {
         return std::isdigit(c) || c == '.' || c == '-' || c == '+';
     });
 }
 
-// Helper to check string prefix (for C++17 compatibility)
 static bool startsWith(const std::string &s, const std::string &prefix) {
     return s.rfind(prefix, 0) == 0;
 }
@@ -72,16 +70,21 @@ std::optional<std::string> GPS::readLine() {
 std::optional<GPSData> GPS::readData() {
     auto lineOpt = readLine();
     if (!lineOpt) return std::nullopt;
-
     const std::string &line = *lineOpt;
 
-    // Optional: uncomment to see incoming data
+    // Uncomment for debugging:
     // std::cout << "[GPS] " << line << std::endl;
 
     if (startsWith(line, "$GPGGA") || startsWith(line, "$GNGGA")) {
-        return parseNMEA(line);
+        auto parsed = parseGGA(line);
+        if (parsed) lastData = *parsed;
+    } 
+    else if (startsWith(line, "$GPRMC") || startsWith(line, "$GNRMC")) {
+        auto parsed = parseRMC(line);
+        if (parsed) lastData = *parsed;
     }
-    return std::nullopt;
+
+    return lastData.hasFix ? std::optional<GPSData>(lastData) : std::nullopt;
 }
 
 bool GPS::hasFix(const std::string &nmea) {
@@ -89,35 +92,25 @@ bool GPS::hasFix(const std::string &nmea) {
     std::stringstream ss(nmea);
     std::string token;
     while (std::getline(ss, token, ',')) tokens.push_back(token);
-
     if (tokens.size() > 6) {
-        return tokens[6] != "0"; // fix quality > 0 means we have a fix
+        return tokens[6] != "0";
     }
     return false;
 }
 
-std::optional<GPSData> GPS::parseNMEA(const std::string &nmea) {
+std::optional<GPSData> GPS::parseGGA(const std::string &nmea) {
     std::vector<std::string> tokens;
     std::stringstream ss(nmea);
     std::string token;
     while (std::getline(ss, token, ',')) tokens.push_back(token);
-
     if (tokens.size() < 15) return std::nullopt;
 
-    GPSData data{};
+    GPSData data = lastData; // preserve last speed, etc.
     data.hasFix = tokens[6] != "0";
 
-    // Fix quality
-    if (isNumeric(tokens[6])) data.fixQuality = std::stoi(tokens[6]);
-    else data.fixQuality = 0;
-
-    // Satellites
-    if (isNumeric(tokens[7])) data.satellites = std::stoi(tokens[7]);
-    else data.satellites = 0;
-
-    // Altitude
-    if (isNumeric(tokens[9])) data.altitude_m = std::stod(tokens[9]);
-    else data.altitude_m = 0.0;
+    data.fixQuality = isNumeric(tokens[6]) ? std::stoi(tokens[6]) : 0;
+    data.satellites = isNumeric(tokens[7]) ? std::stoi(tokens[7]) : 0;
+    data.altitude_m = isNumeric(tokens[9]) ? std::stod(tokens[9]) : 0.0;
 
     // Latitude
     if (isNumeric(tokens[2]) && !tokens[3].empty()) {
@@ -125,8 +118,6 @@ std::optional<GPSData> GPS::parseNMEA(const std::string &nmea) {
                    + std::stod(tokens[2].substr(2)) / 60.0;
         if (tokens[3] == "S") lat = -lat;
         data.latitude = lat;
-    } else {
-        data.latitude = 0.0;
     }
 
     // Longitude
@@ -135,11 +126,30 @@ std::optional<GPSData> GPS::parseNMEA(const std::string &nmea) {
                    + std::stod(tokens[4].substr(3)) / 60.0;
         if (tokens[5] == "W") lon = -lon;
         data.longitude = lon;
-    } else {
-        data.longitude = 0.0;
     }
 
-    data.datetime = tokens[1]; // raw UTC time string
+    data.datetime = tokens[1];
+    return data;
+}
 
+std::optional<GPSData> GPS::parseRMC(const std::string &nmea) {
+    std::vector<std::string> tokens;
+    std::stringstream ss(nmea);
+    std::string token;
+    while (std::getline(ss, token, ',')) tokens.push_back(token);
+    if (tokens.size() < 12) return std::nullopt;
+
+    GPSData data = lastData;
+    if (tokens[2] == "A") data.hasFix = true; // A=active fix, V=void
+
+    // Speed in knots → convert to km/h
+    if (isNumeric(tokens[7])) {
+        double speed_knots = std::stod(tokens[7]);
+        data.speed_kmh = speed_knots * 1.852;
+    } else {
+        data.speed_kmh = 0.0;
+    }
+
+    data.datetime = tokens[1];
     return data;
 }
