@@ -1,0 +1,17 @@
+[Unit]
+Description=Firelink flight computer
+After=multi-user.target
+
+[Service]
+Type=simple
+# Adjust paths if the repo lives somewhere else on the Pi.
+WorkingDirectory=/home/pi/firelink-cpp
+ExecStart=/home/pi/firelink-cpp/firelink /home/pi/firelink-cpp/firelink.conf
+# Restart=always also powers the web page's "restart" button: the server
+# answers the request, exits, and systemd relaunches with the saved config.
+Restart=always
+RestartSec=2
+User=root
+
+[Install]
+WantedBy=multi-user.target

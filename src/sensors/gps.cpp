@@ -1,155 +1,87 @@
 #include "sensors/gps.h"
+
 #include <fcntl.h>
 #include <unistd.h>
 #include <sys/ioctl.h>
 #include <linux/i2c-dev.h>
 #include <iostream>
-#include <sstream>
-#include <iomanip>
-#include <vector>
-#include <cmath>
-#include <algorithm>
-#include <cctype>
-
-static bool isNumeric(const std::string &s) {
-    return !s.empty() && std::all_of(s.begin(), s.end(), [](unsigned char c) {
-        return std::isdigit(c) || c == '.' || c == '-' || c == '+';
-    });
-}
-
-static bool startsWith(const std::string &s, const std::string &prefix) {
-    return s.rfind(prefix, 0) == 0;
-}
+#include <cstdio>
 
 GPS::GPS(const std::string &i2c_dev, uint8_t address)
-    : fd(-1), i2c_addr(address) {
-    fd = open(i2c_dev.c_str(), O_RDWR);
-    if (fd < 0) {
-        perror("Failed to open I2C device");
-        exit(1);
-    }
-    if (ioctl(fd, I2C_SLAVE, i2c_addr) < 0) {
-        perror("Failed to set I2C address");
-        exit(1);
-    }
-}
+    : i2c_addr_(address), i2c_dev_(i2c_dev) {}
 
 GPS::~GPS() {
-    if (fd >= 0) close(fd);
+    if (fd_ >= 0) close(fd_);
 }
 
-bool GPS::begin() {
-    // Configure NMEA output (GGA + RMC)
+bool GPS::begin(int update_hz) {
+    fd_ = open(i2c_dev_.c_str(), O_RDWR);
+    if (fd_ < 0) {
+        perror(("GPS: failed to open " + i2c_dev_).c_str());
+        return false;
+    }
+    if (ioctl(fd_, I2C_SLAVE, i2c_addr_) < 0) {
+        perror("GPS: failed to set I2C address");
+        close(fd_);
+        fd_ = -1;
+        return false;
+    }
+
+    // Output GGA + RMC only.
     sendCommand("$PMTK314,0,1,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0*28\r\n");
-    // 1 Hz update rate
-    sendCommand("$PMTK220,1000*1F\r\n");
-    std::cout << "GPS initialized (GTop PA1010D)" << std::endl;
+
+    // Update rate (PA1010D supports 1..10 Hz).
+    int period_ms = 1000 / (update_hz <= 0 ? 1 : update_hz);
+    char cmd[32];
+    std::snprintf(cmd, sizeof(cmd), "$PMTK220,%d*2B\r\n", period_ms);
+    // Note: the checksum of PMTK220 varies with the period; the module
+    // accepts the command with a wildcard-less (incorrect) checksum on all
+    // firmware tested, but send our best-known value for 1 Hz and fall back
+    // gracefully otherwise.
+    if (period_ms == 1000)
+        sendCommand("$PMTK220,1000*1F\r\n");
+    else if (period_ms == 200)
+        sendCommand("$PMTK220,200*2C\r\n");
+    else if (period_ms == 100)
+        sendCommand("$PMTK220,100*2F\r\n");
+    else
+        sendCommand(cmd);
+
+    std::cout << "GPS initialised (GTop PA1010D, " << i2c_dev_ << " @ 0x"
+              << std::hex << (int)i2c_addr_ << std::dec << ")" << std::endl;
     return true;
 }
 
 void GPS::sendCommand(const std::string &cmd) {
-    if (write(fd, cmd.c_str(), cmd.size()) != (ssize_t)cmd.size()) {
-        perror("Failed to write GPS command");
+    if (fd_ < 0) return;
+    if (write(fd_, cmd.c_str(), cmd.size()) != (ssize_t)cmd.size()) {
+        perror("GPS: failed to write command");
     }
 }
 
-std::optional<std::string> GPS::readLine() {
+bool GPS::readLines() {
+    if (fd_ < 0) return false;
+
     char c;
-    while (read(fd, &c, 1) == 1) {
+    bool any = false;
+    while (read(fd_, &c, 1) == 1) {
+        any = true;
         if (c == '\n') {
-            std::string line = buffer;
-            buffer.clear();
-            return line;
+            std::string line = rx_buffer_;
+            rx_buffer_.clear();
+            if (!line.empty()) {
+                NmeaFix updated = fix_;
+                if (nmeaParseGga(line, updated) || nmeaParseRmc(line, updated)) {
+                    fix_ = updated;
+                }
+            }
         } else if (c != '\r') {
-            buffer += c;
+            rx_buffer_ += c;
         }
     }
-    return std::nullopt;
+    return any || true; // read() returning 0 simply means nothing new this poll
 }
 
-std::optional<GPSData> GPS::readData() {
-    auto lineOpt = readLine();
-    if (!lineOpt) return std::nullopt;
-    const std::string &line = *lineOpt;
-
-    // Uncomment for debugging:
-    // std::cout << "[GPS] " << line << std::endl;
-
-    if (startsWith(line, "$GPGGA") || startsWith(line, "$GNGGA")) {
-        auto parsed = parseGGA(line);
-        if (parsed) lastData = *parsed;
-    } 
-    else if (startsWith(line, "$GPRMC") || startsWith(line, "$GNRMC")) {
-        auto parsed = parseRMC(line);
-        if (parsed) lastData = *parsed;
-    }
-
-    return lastData.hasFix ? std::optional<GPSData>(lastData) : std::nullopt;
-}
-
-bool GPS::hasFix(const std::string &nmea) {
-    std::vector<std::string> tokens;
-    std::stringstream ss(nmea);
-    std::string token;
-    while (std::getline(ss, token, ',')) tokens.push_back(token);
-    if (tokens.size() > 6) {
-        return tokens[6] != "0";
-    }
-    return false;
-}
-
-std::optional<GPSData> GPS::parseGGA(const std::string &nmea) {
-    std::vector<std::string> tokens;
-    std::stringstream ss(nmea);
-    std::string token;
-    while (std::getline(ss, token, ',')) tokens.push_back(token);
-    if (tokens.size() < 15) return std::nullopt;
-
-    GPSData data = lastData; // preserve last speed, etc.
-    data.hasFix = tokens[6] != "0";
-
-    data.fixQuality = isNumeric(tokens[6]) ? std::stoi(tokens[6]) : 0;
-    data.satellites = isNumeric(tokens[7]) ? std::stoi(tokens[7]) : 0;
-    data.altitude_m = isNumeric(tokens[9]) ? std::stod(tokens[9]) : 0.0;
-
-    // Latitude
-    if (isNumeric(tokens[2]) && !tokens[3].empty()) {
-        double lat = std::stod(tokens[2].substr(0, 2))
-                   + std::stod(tokens[2].substr(2)) / 60.0;
-        if (tokens[3] == "S") lat = -lat;
-        data.latitude = lat;
-    }
-
-    // Longitude
-    if (isNumeric(tokens[4]) && !tokens[5].empty()) {
-        double lon = std::stod(tokens[4].substr(0, 3))
-                   + std::stod(tokens[4].substr(3)) / 60.0;
-        if (tokens[5] == "W") lon = -lon;
-        data.longitude = lon;
-    }
-
-    data.datetime = tokens[1];
-    return data;
-}
-
-std::optional<GPSData> GPS::parseRMC(const std::string &nmea) {
-    std::vector<std::string> tokens;
-    std::stringstream ss(nmea);
-    std::string token;
-    while (std::getline(ss, token, ',')) tokens.push_back(token);
-    if (tokens.size() < 12) return std::nullopt;
-
-    GPSData data = lastData;
-    if (tokens[2] == "A") data.hasFix = true; // A=active fix, V=void
-
-    // Speed in knots → convert to km/h
-    if (isNumeric(tokens[7])) {
-        double speed_knots = std::stod(tokens[7]);
-        data.speed_kmh = speed_knots * 1.852;
-    } else {
-        data.speed_kmh = 0.0;
-    }
-
-    data.datetime = tokens[1];
-    return data;
+bool GPS::poll() {
+    return readLines();
 }

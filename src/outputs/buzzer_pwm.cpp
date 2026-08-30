@@ -3,11 +3,12 @@
 #include <algorithm>
 #include <unistd.h>
 
-BuzzerPWM::BuzzerPWM(unsigned int pin) : gpio_pin(pin), chip(nullptr), line(nullptr) {}
+BuzzerPWM::BuzzerPWM(unsigned int pin, const std::string &chip_name)
+    : gpio_pin(pin), chip_name(chip_name), chip(nullptr), line(nullptr) {}
 
 bool BuzzerPWM::begin() {
-    chip = gpiod_chip_open_by_name("gpiochip0");
-    if (!chip) { std::cerr << "Failed to open gpiochip0\n"; return false; }
+    chip = gpiod_chip_open_by_name(chip_name.c_str());
+    if (!chip) { std::cerr << "Failed to open " << chip_name << "\n"; return false; }
 
     line = gpiod_chip_get_line(chip, gpio_pin);
     if (!line) { std::cerr << "Failed to get line\n"; return false; }
