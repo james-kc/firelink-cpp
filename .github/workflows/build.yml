@@ -1,0 +1,38 @@
+name: build
+
+on:
+  push:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  flight-computer:
+    # ubuntu-22.04 ships libgpiod v1.6, matching the gpiod_line_* API used by
+    # the buzzer / geiger / LoRa pin code.
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install dependencies
+        run: sudo apt-get update && sudo apt-get install -y libgpiod-dev
+      - name: Build flight computer
+        run: make
+      - name: Host unit tests
+        run: make test
+
+  codec-consistency:
+    # The C++ encoder and the Python ground station decoder must agree
+    # byte-for-byte; this job regenerates the golden frame in C++ and checks
+    # the Python codec against it.
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Emit golden frame (C++)
+        run: |
+          make tests/run_tests
+          ./tests/run_tests --emit-golden groundstation/tests/golden_frame.hex
+      - name: Python codec tests
+        run: python groundstation/tests/test_packet.py

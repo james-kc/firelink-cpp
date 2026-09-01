@@ -1,86 +1,76 @@
 #include "sensors/bme280.h"
+
 #include <fcntl.h>
 #include <unistd.h>
 #include <sys/ioctl.h>
 #include <linux/i2c-dev.h>
 #include <iostream>
 #include <cmath>
+#include <algorithm>
 
-#define REG_ID 0xD0
-#define REG_CTRL_HUM 0xF2
-#define REG_STATUS 0xF3
+#define REG_ID        0xD0
+#define REG_CTRL_HUM  0xF2
 #define REG_CTRL_MEAS 0xF4
-#define REG_CONFIG 0xF5
+#define REG_CONFIG    0xF5
 #define REG_PRESS_MSB 0xF7
-#define REG_HUM_MSB 0xFD
-
-#define REG_PRESS_LSB  0xF8
-#define REG_PRESS_XLSB 0xF9
-#define REG_TEMP_MSB   0xFA
-#define REG_TEMP_LSB   0xFB
-#define REG_TEMP_XLSB  0xFC
-#define REG_HUM_LSB    0xFE
-
+#define REG_TEMP_MSB  0xFA
+#define REG_HUM_MSB   0xFD
 
 BME280::BME280(const std::string &i2c_dev, uint8_t address)
-    : fd(-1), i2c_addr(address), t_fine(0) 
-{
-    fd = open(i2c_dev.c_str(), O_RDWR);
-    if (fd < 0) {
-        perror("Failed to open I2C device");
-        exit(1);
-    }
-    if (ioctl(fd, I2C_SLAVE, i2c_addr) < 0) {
-        perror("Failed to set I2C address");
-        exit(1);
-    }
-}
+    : i2c_addr_(address), i2c_dev_(i2c_dev) {}
 
 BME280::~BME280() {
-    if (fd >= 0) close(fd);
+    if (fd_ >= 0) close(fd_);
 }
 
 bool BME280::begin() {
-    // Read and print the chip ID
-    uint8_t id = read8(REG_ID);
-
-    if (id != 0x60) {
-        std::cout << "BME280 ID: 0x" << std::hex << (int)id << std::dec << std::endl;
-        std::cerr << "Unexpected chip ID! (expected 0x60)" << std::endl;
+    fd_ = open(i2c_dev_.c_str(), O_RDWR);
+    if (fd_ < 0) {
+        perror(("BME280: failed to open " + i2c_dev_).c_str());
+        return false;
+    }
+    if (ioctl(fd_, I2C_SLAVE, i2c_addr_) < 0) {
+        perror("BME280: failed to set I2C address");
+        close(fd_);
+        fd_ = -1;
         return false;
     }
 
-    // Read calibration data
+    uint8_t id = read8(REG_ID);
+    if (id != 0x60) {
+        std::cerr << "BME280: unexpected chip ID 0x" << std::hex << (int)id
+                  << std::dec << " (expected 0x60)" << std::endl;
+        return false;
+    }
+
     readCalibration();
-    // printCalibration();
 
-
-    // Set humidity oversampling x1
-    uint8_t buf_hum[2] = {REG_CTRL_HUM, 0x01};
-    write(fd, buf_hum, 2);
-
-    // Set normal mode, temp and pressure oversampling x1
-    uint8_t buf_meas[2] = {REG_CTRL_MEAS, 0x27};
-    write(fd, buf_meas, 2);
-
-    // Set config (standby 1000ms)
-    uint8_t buf_config[2] = {REG_CONFIG, 0xA0};
-    write(fd, buf_config, 2);
+    // Humidity oversampling x1.
+    write8(REG_CTRL_HUM, 0x01);
+    // Normal mode, temperature oversampling x1, pressure oversampling x16.
+    write8(REG_CTRL_MEAS, 0x33); // osrs_t=001, osrs_p=100, mode=11
+    // Standby 62.5 ms, IIR filter coefficient 16.
+    write8(REG_CONFIG, 0x50);    // t_sb=010, filter=100
 
     return true;
 }
 
+void BME280::write8(uint8_t reg, uint8_t value) {
+    uint8_t buf[2] = {reg, value};
+    if (write(fd_, buf, 2) != 2) perror("BME280: register write failed");
+}
+
 uint8_t BME280::read8(uint8_t reg) {
-    uint8_t val;
-    write(fd, &reg, 1);
-    read(fd, &val, 1);
+    if (write(fd_, &reg, 1) != 1) return 0;
+    uint8_t val = 0;
+    if (read(fd_, &val, 1) != 1) return 0;
     return val;
 }
 
 uint16_t BME280::read16(uint8_t reg) {
-    uint8_t lsb = read8(reg);       // read LSB first
-    uint8_t msb = read8(reg + 1);   // then MSB
-    return (msb << 8) | lsb;        // combine
+    uint8_t lsb = read8(reg);
+    uint8_t msb = read8(reg + 1);
+    return (uint16_t)((msb << 8) | lsb);
 }
 
 int16_t BME280::readS16(uint8_t reg) {
@@ -89,8 +79,8 @@ int16_t BME280::readS16(uint8_t reg) {
 
 uint32_t BME280::read24(uint8_t reg) {
     uint8_t buf[3];
-    write(fd, &reg, 1);
-    read(fd, buf, 3);
+    if (write(fd_, &reg, 1) != 1) return 0;
+    if (read(fd_, buf, 3) != 3) return 0;
     return (static_cast<uint32_t>(buf[0]) << 16) | (buf[1] << 8) | buf[2];
 }
 
@@ -122,32 +112,6 @@ void BME280::readCalibration() {
     calib.dig_H6 = static_cast<int8_t>(read8(0xE7));
 }
 
-
-void BME280::printCalibration() {
-    printf("Calibration values:\n");
-    printf("T1: %u\n", calib.dig_T1);
-    printf("T2: %d\n", calib.dig_T2);
-    printf("T3: %d\n", calib.dig_T3);
-
-    printf("P1: %u\n", calib.dig_P1);
-    printf("P2: %d\n", calib.dig_P2);
-    printf("P3: %d\n", calib.dig_P3);
-    printf("P4: %d\n", calib.dig_P4);
-    printf("P5: %d\n", calib.dig_P5);
-    printf("P6: %d\n", calib.dig_P6);
-    printf("P7: %d\n", calib.dig_P7);
-    printf("P8: %d\n", calib.dig_P8);
-    printf("P9: %d\n", calib.dig_P9);
-
-    printf("H1: %u\n", calib.dig_H1);
-    printf("H2: %d\n", calib.dig_H2);
-    printf("H3: %u\n", calib.dig_H3);
-    printf("H4: %d\n", calib.dig_H4);
-    printf("H5: %d\n", calib.dig_H5);
-    printf("H6: %d\n", calib.dig_H6);
-}
-
-
 float BME280::readTemperature() {
     int32_t adc_T = read24(REG_TEMP_MSB) >> 4;
 
@@ -158,7 +122,6 @@ float BME280::readTemperature() {
     float T = (t_fine * 5 + 128) >> 8;
     return T / 100.0f;
 }
-
 
 float BME280::readPressure() {
     readTemperature(); // updates t_fine
@@ -171,7 +134,7 @@ float BME280::readPressure() {
     var1 = ((var1 * var1 * (int64_t)calib.dig_P3) >> 8) + ((var1 * (int64_t)calib.dig_P2) << 12);
     var1 = (((((int64_t)1) << 47) + var1) * (int64_t)calib.dig_P1) >> 33;
 
-    if (var1 == 0) return 0; // avoid div by zero
+    if (var1 == 0) return 0;
 
     int64_t p = 1048576 - adc_P;
     p = (((p << 31) - var2) * 3125) / var1;
@@ -179,12 +142,12 @@ float BME280::readPressure() {
     var2 = (((int64_t)calib.dig_P8) * p) >> 19;
     p = ((p + var1 + var2) >> 8) + (((int64_t)calib.dig_P7) << 4);
 
-    return (float)p / 25600.0f; // convert to hPa
+    return (float)p / 25600.0f;
 }
 
 float BME280::readAltitude(float seaLevel_hPa) {
-    float pressure = readPressure();  // in hPa
-    return 44330.0f * (1.0f - pow(pressure / seaLevel_hPa, 0.1903f));
+    float pressure = readPressure();
+    return 44330.0f * (1.0f - std::pow(pressure / seaLevel_hPa, 0.1903f));
 }
 
 float BME280::readHumidity() {
@@ -201,19 +164,17 @@ float BME280::readHumidity() {
     return (v_x1_u32r >> 12) / 1024.0f;
 }
 
-float BME280::calibrateAltitude() {
+float BME280::calibrateAltitude(int samples) {
     std::cout << "Measuring pad pressure for altitude calibration..." << std::endl;
-    
-    float pressure_sum = 0.0f;
-    
-    for (int i = 0; i < 10; ++i) {
-        pressure_sum += readPressure();
-        sleep(1);        
+
+    float sum = 0.0f;
+    for (int i = 0; i < samples; ++i) {
+        sum += readPressure();
+        sleep(1);
     }
 
-    float pad_pressure = pressure_sum / 10.0f;
-
-    std::cout << "Altitude calibration complete. Pad pressure: " << pad_pressure << " hPa" << std::endl;
-
+    float pad_pressure = sum / samples;
+    std::cout << "Altitude calibration complete. Pad pressure: "
+              << pad_pressure << " hPa" << std::endl;
     return pad_pressure;
 }

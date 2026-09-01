@@ -1,1 +1,11 @@
 .vscode
+.DS_Store
+*.o
+firelink
+firelink.conf
+data/
+tests/run_tests
+groundstation/gs_logs/
+groundstation/.venv/
+__pycache__/
+*.pyc

@@ -1,0 +1,58 @@
+# Firelink flight computer configuration.
+# Copy to firelink.conf and edit (or edit live from the pre-flight web page).
+# Every value shown here is the compiled-in default; lines can be deleted to
+# fall back to them.
+
+# ---- General ---------------------------------------------------------------
+callsign=FIRELINK
+data_dir=data
+web.port=80
+arm.require_gps_fix=true
+
+# ---- GPIO (BCM numbering) --------------------------------------------------
+gpio.chip=gpiochip0
+pin.buzzer=4
+pin.geiger=17
+pin.lora_m0=22
+pin.lora_m1=27
+pin.lora_aux=-1
+
+# ---- I2C -------------------------------------------------------------------
+i2c.bus=/dev/i2c-1
+i2c.addr.gps=0x10
+i2c.addr.imu=0x6A
+i2c.addr.bme280=0x76
+
+# ---- Sampling rates --------------------------------------------------------
+rate.imu_hz=200
+rate.bme_hz=10
+rate.telemetry_hz=2
+rate.landed_telemetry_hz=0.2
+gps.update_hz=5
+geiger.window_s=60
+
+# ---- IMU -------------------------------------------------------------------
+imu.accel_range_g=16
+imu.gyro_range_dps=2000
+imu.odr_hz=833
+
+# ---- LoRa (Waveshare SX1262 868 MHz UART HAT) ------------------------------
+lora.uart=/dev/serial0
+lora.baud=9600
+lora.configure=false
+lora.address=0
+lora.net_id=0
+lora.air_baud=2400
+lora.tx_power_dbm=22
+lora.channel=18
+lora.rssi_append=false
+lora.fixed_mode=false
+
+# ---- Landing detection -----------------------------------------------------
+land.min_flight_s=20
+land.window_s=15
+land.accel_tol=1.5
+land.alt_tol_m=3
+
+# ---- Geiger ----------------------------------------------------------------
+geiger.cpm_per_usvh=153
