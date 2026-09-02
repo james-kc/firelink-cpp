@@ -184,6 +184,13 @@ public:
             std::vector<int> notes = {Notes::A5, Notes::Bb5, Notes::B5, Notes::C6};
             std::vector<int> dur = {100, 100, 100, 600};
             buzzer_.playMelody(notes, dur);
+            // Recovery siren: rising/falling sweeps until disarm. The loop
+            // re-checks the flight state each ~1.3 s sweep; disarm flips the
+            // state to PREFLIGHT and the siren stops after the current sweep.
+            while (state_.get().state == FlightState::LANDED) {
+                for (int f = 600; f <= 1400; f += 50) buzzer_.tone(f, 20);
+                for (int f = 1400; f >= 600; f -= 50) buzzer_.tone(f, 20);
+            }
         }).detach();
     }
 
