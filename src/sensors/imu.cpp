@@ -15,26 +15,27 @@
 
 namespace {
 
-// Full-scale selection bits (CTRL1_XL[3:2], CTRL2_G[3:2] + 125 dps bit).
+// Full-scale selection bits (CTRL1_XL[3:2] FS_XL, CTRL2_G[3:2] FS_G).
+// FS_XL: 00=+/-2g 01=+/-16g 10=+/-4g 11=+/-8g. FS_G: 00=250 01=500
+// 10=1000 11=2000 dps; 125 dps is selected by FS_125 (bit 1) instead.
 uint8_t accelFsBits(int range_g, float &scale_g) {
     switch (range_g) {
         case 2:  scale_g = 0.000061f;  return 0x00;
-        case 4:  scale_g = 0.000122f;  return 0x02 << 1;
-        case 8:  scale_g = 0.000244f;  return 0x03 << 1;
+        case 4:  scale_g = 0.000122f;  return 0x08;
+        case 8:  scale_g = 0.000244f;  return 0x0C;
         case 16:
-        default: scale_g = 0.000488f;  return 0x01 << 1;
+        default: scale_g = 0.000488f;  return 0x04;
     }
 }
 
-// Gyro: FS bits differ (CTRL2_G[3:1]; 125 dps uses FS_125 bit 0).
 uint8_t gyroFsBits(int range_dps, float &scale_dps) {
     switch (range_dps) {
-        case 125: scale_dps = 0.004375f; return 0x01;        // FS_125
+        case 125: scale_dps = 0.004375f; return 0x02;        // FS_125
         case 250: scale_dps = 0.00875f;  return 0x00;
-        case 500: scale_dps = 0.0175f;   return 0x02;
-        case 1000: scale_dps = 0.035f;   return 0x04;
+        case 500: scale_dps = 0.0175f;   return 0x04;
+        case 1000: scale_dps = 0.035f;   return 0x08;
         case 2000:
-        default:  scale_dps = 0.070f;    return 0x06;
+        default:  scale_dps = 0.070f;    return 0x0C;
     }
 }
 
