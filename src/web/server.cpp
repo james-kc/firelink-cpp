@@ -213,9 +213,24 @@ void WebServer::handleConnection(int client_fd) {
         resp << "{\"ok\":true,\"restart_required\":"
              << (restart_required ? "true" : "false") << "}";
         json(resp.str());
+    } else if (method == "GET" && path == "/api/armcode") {
+        if (handlers_.getArmCode) json(handlers_.getArmCode());
+        else json("{\"ok\":false,\"error\":\"no armcode handler\"}", 500);
     } else if (method == "POST" && path == "/api/arm") {
-        bool force = body.find("force=true") != std::string::npos;
-        if (handlers_.arm) json(handlers_.arm(force));
+        // urlencoded body: code=1234[&force=true]
+        bool force = false;
+        std::string code;
+        std::istringstream bs(body);
+        std::string pair;
+        while (std::getline(bs, pair, '&')) {
+            auto eq = pair.find('=');
+            if (eq == std::string::npos || eq == 0) continue;
+            std::string key = urlDecode(pair.substr(0, eq));
+            std::string value = urlDecode(pair.substr(eq + 1));
+            if (key == "force" && value == "true") force = true;
+            else if (key == "code") code = value;
+        }
+        if (handlers_.arm) json(handlers_.arm(code, force));
         else json("{\"ok\":false,\"error\":\"no arm handler\"}", 500);
     } else if (method == "POST" && path == "/api/disarm") {
         if (handlers_.disarm) json(handlers_.disarm());

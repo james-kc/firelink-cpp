@@ -49,10 +49,26 @@ lora.rssi_append=false
 lora.fixed_mode=false
 
 # ---- Landing detection -----------------------------------------------------
+# Landing is only considered once a launch has latched: baro altitude gain
+# above the pad OR sustained high |accel|, held for launch_confirm_s seconds.
+land.launch_alt_m=20
+land.launch_accel_ms2=25
+land.launch_confirm_s=2
 land.min_flight_s=20
 land.window_s=15
 land.accel_tol=1.5
 land.alt_tol_m=3
+
+# ---- Recording -------------------------------------------------------------
+# While armed but not launched, CSV rows are buffered in RAM and written out
+# decimated to rec.prelaunch_hz. On launch the whole buffer is back-filled at
+# full rate, so the launch itself is always captured in full-rate data.
+# rec.launch_buffer_s must cover the launch detector's own latency; anything
+# below launch_confirm_s + 5 s is raised with a warning at arm time.
+# Once landed, recording drops to rec.landed_hz (decimated write-through).
+rec.prelaunch_hz=1
+rec.launch_buffer_s=15
+rec.landed_hz=1
 
 # ---- Geiger ----------------------------------------------------------------
 geiger.cpm_per_usvh=153
