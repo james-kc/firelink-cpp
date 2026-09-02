@@ -575,32 +575,21 @@ public:
         float min_flight_s = cfg_.getFloat("land.min_flight_s", 20);
         if (snap.arm_time_ms == 0 ||
             (steadyMs() - snap.arm_time_ms) < (uint64_t)(min_flight_s * 1000)) {
-            if (cfg_.getBool("land.debug", false)) {
-                static int n0 = 0;
-                if (++n0 % 5 == 0)
-                    std::cout << "landgate0 min_flight not met: elapsed="
-                              << (snap.arm_time_ms ? (steadyMs() - snap.arm_time_ms) : 0)
-                              << std::endl;
-            }
             return;
         }
 
-        uint64_t now = steadyMs();
-        land_history_.push_back({now, snap.accel_mag, snap.baro_alt_rel_m});
+        land_history_.push_back({steadyMs(), snap.accel_mag, snap.baro_alt_rel_m});
 
-        uint64_t window_ms = (uint64_t)cfg_.getFloat("land.window_s", 15) * 1000;
-        while (!land_history_.empty() && now - land_history_.front().t_ms > window_ms)
+        // Count-based window: polling at ~1 Hz, keep the last window_s
+        // samples. The previous age-based evict-then-check could never pass:
+        // the poll period slightly exceeds 1 s, so the oldest sample crossed
+        // the age limit and was evicted one tick before the check could see
+        // a full window.
+        size_t need = (size_t)std::max(1.0f, cfg_.getFloat("land.window_s", 15));
+        while (land_history_.size() > need)
             land_history_.pop_front();
-        if (now - land_history_.front().t_ms < window_ms) {
-            if (cfg_.getBool("land.debug", false)) {
-                static int n1 = 0;
-                if (++n1 % 5 == 0)
-                    std::cout << "landgate1 window filling: age="
-                              << (now - land_history_.front().t_ms) << "/"
-                              << window_ms << std::endl;
-            }
-            return;
-        }
+        if (land_history_.size() < need)
+            return; // window not yet full
 
         float accel_tol = cfg_.getFloat("land.accel_tol", 1.5f);
         float alt_tol = cfg_.getFloat("land.alt_tol_m", 3.0f);
