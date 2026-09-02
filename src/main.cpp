@@ -1,11 +1,15 @@
 // Firelink flight computer.
 //
 // Boot flow:  load config -> start sensor threads -> start LoRa telemetry ->
-//             start web server -> PREFLIGHT. The web page arms the computer;
-//             while armed every sensor thread streams to per-sensor CSVs in a
-//             timestamped session directory and the telemetry thread keys the
-//             LoRa downlink. After landing is detected (IMU + baro quiet) the
-//             computer drops to a low-rate GPS beacon until disarmed.
+//             start web server -> PREFLIGHT. The web page arms the computer
+//             (4-digit confirmation code); while armed every sensor thread
+//             streams to per-sensor CSVs in a timestamped session directory
+//             and the telemetry thread keys the LoRa downlink. CSV rows are
+//             decimated to a low pad rate until a launch is latched (baro
+//             altitude gain or sustained high-g), then back-filled at full
+//             rate from a RAM ring buffer so the launch is always captured in
+//             full-rate data. After landing is detected (IMU + baro quiet)
+//             the computer drops to a low-rate GPS beacon until disarmed.
 
 #include "config.h"
 #include "state.h"
@@ -30,6 +34,7 @@
 #include <fstream>
 #include <iostream>
 #include <mutex>
+#include <random>
 #include <sstream>
 #include <string>
 #include <thread>
@@ -86,6 +91,54 @@ static std::string jsonEscape(const std::string &s) {
     return out;
 }
 
+// Pre-select recorder for one CSV stream. While launch is not yet latched,
+// fully formatted rows (timestamp fixed at capture time) accumulate in a RAM
+// ring buffer; rows evicted from the buffer are written to the file decimated
+// to a low pad rate. Once the launch latch is observed, the whole buffer is
+// back-filled at full rate and subsequent rows write through, so the launch
+// itself is always captured in full-rate data. Rows are strictly time-ordered
+// with no duplicates.
+class PreSelectRecorder {
+public:
+    void configure(int stream_hz, float prelaunch_hz, int buffer_s) {
+        capacity_ = std::max(1, stream_hz * std::max(1, buffer_s));
+        decim_ = std::max(1, (int)std::lround(
+            stream_hz / (double)std::max(0.01f, prelaunch_hz)));
+        ring_.clear();
+        evict_count_ = 0;
+        latched_ = false;
+    }
+
+    // Records one row; returns the number of buffered rows back-filled at
+    // the moment the latch is first observed, 0 otherwise.
+    int push(const std::string &row, std::ofstream &out, bool full_rate) {
+        if (full_rate) latched_ = true;
+        if (latched_) {
+            int backfilled = (int)ring_.size();
+            while (!ring_.empty()) {
+                out << ring_.front() << '\n';
+                ring_.pop_front();
+            }
+            out << row << '\n';
+            return backfilled;
+        }
+        ring_.push_back(row);
+        if ((int)ring_.size() > capacity_) {
+            if (evict_count_ % decim_ == 0) out << ring_.front() << '\n';
+            ++evict_count_;
+            ring_.pop_front();
+        }
+        return 0;
+    }
+
+private:
+    int capacity_ = 1;
+    int decim_ = 1;
+    long evict_count_ = 0;
+    bool latched_ = false;
+    std::deque<std::string> ring_;
+};
+
 // ------------------------------------------------------------ flight app ----
 
 class FlightComputer {
@@ -133,28 +186,37 @@ public:
                           (float)f.speed_kmh, steadyMs());
 
             if (recordingActive()) {
-                std::lock_guard<std::mutex> lk(csv_mu_);
-                if (csv_gps_.is_open() && f.hasFix) {
-                    double lat_deg, lat_min, lon_deg, lon_min;
-                    splitDegMin(f.latitude, lat_deg, lat_min);
-                    splitDegMin(f.longitude, lon_deg, lon_min);
-                    csv_gps_ << utcTimestampMs() << ','
-                             << f.utc_time << ','
-                             << f.fixQuality << ','
-                             << f.latitude << ','
-                             << f.longitude << ','
-                             << (int)lat_deg << ','
-                             << lat_min << ','
-                             << (int)lon_deg << ','
-                             << lon_min << ','
-                             << f.satellites << ','
-                             << f.altitude_m << ','
-                             << f.speed_kmh / 1.852 << ','
-                             << f.track_deg << ','
-                             << f.hdop << ','
-                             << f.geoid_height_m << '\n';
-                    csv_gps_.flush();
+                int backfilled = 0;
+                {
+                    std::lock_guard<std::mutex> lk(csv_mu_);
+                    if (csv_gps_.is_open() && f.hasFix) {
+                        double lat_deg, lat_min, lon_deg, lon_min;
+                        splitDegMin(f.latitude, lat_deg, lat_min);
+                        splitDegMin(f.longitude, lon_deg, lon_min);
+                        std::ostringstream row;
+                        row << utcTimestampMs() << ','
+                            << f.utc_time << ','
+                            << f.fixQuality << ','
+                            << f.latitude << ','
+                            << f.longitude << ','
+                            << (int)lat_deg << ','
+                            << lat_min << ','
+                            << (int)lon_deg << ','
+                            << lon_min << ','
+                            << f.satellites << ','
+                            << f.altitude_m << ','
+                            << f.speed_kmh / 1.852 << ','
+                            << f.track_deg << ','
+                            << f.hdop << ','
+                            << f.geoid_height_m;
+                        backfilled = rec_gps_.push(row.str(), csv_gps_,
+                                                   launch_detected_.load());
+                        csv_gps_.flush();
+                    }
                 }
+                if (backfilled > 0)
+                    logEvent("LAUNCH backfill: " + std::to_string(backfilled) +
+                             " gps rows");
             }
             std::this_thread::sleep_for(std::chrono::milliseconds(40));
         }
@@ -185,17 +247,26 @@ public:
             state_.setImu(ax, ay, az, gx, gy, gz, mag, steadyMs());
 
             if (recordingActive()) {
-                std::lock_guard<std::mutex> lk(csv_mu_);
-                if (csv_imu_.is_open()) {
-                    csv_imu_ << utcTimestampMs() << ','
-                             << ax << ',' << ay << ',' << az << ','
-                             << gx << ',' << gy << ',' << gz << '\n';
-                    // Flush opportunistically ~once per second of samples.
-                    if (++imu_rows_since_flush_ >= 100) {
-                        csv_imu_.flush();
-                        imu_rows_since_flush_ = 0;
+                int backfilled = 0;
+                {
+                    std::lock_guard<std::mutex> lk(csv_mu_);
+                    if (csv_imu_.is_open()) {
+                        std::ostringstream row;
+                        row << utcTimestampMs() << ','
+                            << ax << ',' << ay << ',' << az << ','
+                            << gx << ',' << gy << ',' << gz;
+                        backfilled = rec_imu_.push(row.str(), csv_imu_,
+                                                   launch_detected_.load());
+                        // Flush opportunistically ~once per second of samples.
+                        if (++imu_rows_since_flush_ >= 100) {
+                            csv_imu_.flush();
+                            imu_rows_since_flush_ = 0;
+                        }
                     }
                 }
+                if (backfilled > 0)
+                    logEvent("LAUNCH backfill: " + std::to_string(backfilled) +
+                             " accelerometer rows");
             }
 
             next += std::chrono::microseconds(period_us);
@@ -227,15 +298,24 @@ public:
             state_.noteMaxValues(alt_rel, 0);
 
             if (recordingActive()) {
-                std::lock_guard<std::mutex> lk(csv_mu_);
-                if (csv_env_.is_open()) {
-                    csv_env_ << utcTimestampMs() << ','
-                             << alt_rel << ','
-                             << pressure << ','
-                             << temp << ','
-                             << hum << '\n';
-                    csv_env_.flush();
+                int backfilled = 0;
+                {
+                    std::lock_guard<std::mutex> lk(csv_mu_);
+                    if (csv_env_.is_open()) {
+                        std::ostringstream row;
+                        row << utcTimestampMs() << ','
+                            << alt_rel << ','
+                            << pressure << ','
+                            << temp << ','
+                            << hum;
+                        backfilled = rec_env_.push(row.str(), csv_env_,
+                                                   launch_detected_.load());
+                        csv_env_.flush();
+                    }
                 }
+                if (backfilled > 0)
+                    logEvent("LAUNCH backfill: " + std::to_string(backfilled) +
+                             " barometer rows");
             }
             std::this_thread::sleep_for(std::chrono::milliseconds(period_ms));
         }
@@ -269,13 +349,22 @@ public:
             state_.setGeiger(cpm, window_counts, now);
 
             if (recordingActive()) {
-                std::lock_guard<std::mutex> lk(csv_mu_);
-                if (csv_geiger_.is_open()) {
-                    csv_geiger_ << utcTimestampMs() << ','
-                                << window_counts << ','
-                                << cpm << '\n';
-                    csv_geiger_.flush();
+                int backfilled = 0;
+                {
+                    std::lock_guard<std::mutex> lk(csv_mu_);
+                    if (csv_geiger_.is_open()) {
+                        std::ostringstream row;
+                        row << utcTimestampMs() << ','
+                            << window_counts << ','
+                            << cpm;
+                        backfilled = rec_geiger_.push(row.str(), csv_geiger_,
+                                                      launch_detected_.load());
+                        csv_geiger_.flush();
+                    }
                 }
+                if (backfilled > 0)
+                    logEvent("LAUNCH backfill: " + std::to_string(backfilled) +
+                             " geiger rows");
             }
         }
     }
@@ -341,7 +430,19 @@ public:
 
     // --------------------------------------------------------- arm/disarm --
 
-    std::string arm(bool force) {
+    std::string arm(const std::string &code, bool force) {
+        // The 4-digit code shown on the web page is always required,
+        // including when forcing past failed pre-arm checks. A wrong code
+        // rotates to a fresh one so it cannot be guessed against a fixed
+        // value.
+        {
+            std::lock_guard<std::mutex> lk(code_mu_);
+            if (code.empty() || code != arm_code_) {
+                rotateArmCode();
+                return "{\"ok\":false,\"error\":\"wrong arm code\"}";
+            }
+        }
+
         Snapshot snap = state_.get();
         if (snap.state == FlightState::ARMED)
             return "{\"ok\":false,\"error\":\"already armed\"}";
@@ -367,6 +468,9 @@ public:
         openSession();
         state_.setArmTime(steadyMs());
         state_.setState(FlightState::ARMED);
+        launch_detected_.store(false);
+        launch_streak_ = 0;
+        land_history_.clear();
         logEvent("ARMED" + std::string(force ? " (forced)" : ""));
         sendStatus("ARMED");
         beepAsync(250);
@@ -382,17 +486,56 @@ public:
         closeSession();
         state_.setArmTime(0);
         state_.setState(FlightState::PREFLIGHT);
+        launch_detected_.store(false);
+        launch_streak_ = 0;
+        land_history_.clear();
         sendStatus("DISARMED");
         beepAsync(80);
         std::cout << "Flight computer disarmed" << std::endl;
         return "{\"ok\":true}";
     }
 
-    // Landing detection, polled from the main loop while ARMED.
+    // Fresh 4-digit arming code for the web page; regenerated on every page
+    // load and after every failed arm attempt.
+    std::string armCodeJson() {
+        std::lock_guard<std::mutex> lk(code_mu_);
+        rotateArmCode();
+        std::ostringstream os;
+        os << "{\"code\":\"" << arm_code_ << "\"}";
+        return os.str();
+    }
+
+    // Launch/landing detection, polled from the main loop while ARMED.
+    // Landing is only considered once a launch has been latched (baro
+    // altitude gain or sustained high-g), so a long armed wait on the pad can
+    // never satisfy the landing criteria. The latch also flips the CSV
+    // recorders from decimated pad-rate to full-rate recording.
     void checkLanding() {
         Snapshot snap = state_.get();
         if (snap.state != FlightState::ARMED) {
             land_history_.clear();
+            launch_streak_ = 0;
+            return;
+        }
+
+        if (!launch_detected_.load()) {
+            float launch_alt = cfg_.getFloat("land.launch_alt_m", 20.0f);
+            float launch_accel = cfg_.getFloat("land.launch_accel_ms2", 25.0f);
+            int confirm_s = std::max(1, cfg_.getInt("land.launch_confirm_s", 2));
+
+            bool tripped = (snap.baro_alt_rel_m > launch_alt) ||
+                           (snap.accel_mag > launch_accel);
+            launch_streak_ = tripped ? launch_streak_ + 1 : 0;
+            if (launch_streak_ >= confirm_s) {
+                launch_detected_.store(true);
+                std::ostringstream ev;
+                ev << "LAUNCH detected baro_alt=" << snap.baro_alt_rel_m
+                   << "m accel=" << snap.accel_mag << "m/s2";
+                logEvent(ev.str());
+                sendStatus("LAUNCHED");
+                std::cout << "Launch detected -> full-rate recording"
+                          << std::endl;
+            }
             return;
         }
 
@@ -453,6 +596,7 @@ public:
            << "\"temperature_c\":" << s.temperature_c << ","
            << "\"humidity_pct\":" << s.humidity_pct << ","
            << "\"pad_pressure_hpa\":" << s.pad_pressure_hpa << ","
+           << "\"launch_latched\":" << (launch_detected_.load() ? "true" : "false") << ","
            << "\"imu_ok\":" << (s.imu_ok ? "true" : "false") << ","
            << "\"accel_mag\":" << s.accel_mag << ","
            << "\"geiger_ok\":" << (s.geiger_ok ? "true" : "false") << ","
@@ -538,7 +682,8 @@ public:
         // Web API.
         WebServer::Handlers h;
         h.getStatusJson = [this] { return statusJson(); };
-        h.arm = [this](bool force) { return arm(force); };
+        h.arm = [this](const std::string &code, bool force) { return arm(code, force); };
+        h.getArmCode = [this] { return armCodeJson(); };
         h.disarm = [this] { return disarm(); };
         h.recalibrate = [this] { return recalibrate(); };
         h.readDataFile = [this](const std::string &rel) { return readDataFile(rel); };
@@ -589,6 +734,29 @@ private:
     struct LandSample { uint64_t t_ms; float accel_mag; float alt; };
     std::deque<LandSample> land_history_;
 
+    // Launch latch: written by the main loop in checkLanding(), also read by
+    // the sensor threads to flip the pre-select recorders to full rate.
+    std::atomic<bool> launch_detected_{false};
+    int launch_streak_ = 0;   // main loop only
+
+    // Pre-select CSV recorders (decimated pad rate + full-rate launch
+    // backfill). Configured per session in openSession(), used only under
+    // csv_mu_.
+    PreSelectRecorder rec_gps_, rec_imu_, rec_env_, rec_geiger_;
+
+    // Arming code: the web page must echo back the displayed 4-digit code.
+    std::mutex code_mu_;
+    std::string arm_code_;
+    std::mt19937 rng_{std::random_device{}()};
+
+    // Caller holds code_mu_.
+    void rotateArmCode() {
+        std::uniform_int_distribution<int> dist(0, 9999);
+        char buf[8];
+        std::snprintf(buf, sizeof(buf), "%04d", dist(rng_));
+        arm_code_ = buf;
+    }
+
     static void splitDegMin(double decimal, double &deg, double &min) {
         double a = std::fabs(decimal);
         deg = (int)a;
@@ -617,6 +785,28 @@ private:
         session_path_ = base + "/" + sessionName();
         std::error_code ec;
         fs::create_directories(session_path_, ec);
+
+        // The pre-trigger buffer must cover the launch detector's own
+        // latency (confirmation polls plus the 1 s main-loop tick) so no
+        // launch data is lost even when launch latches slowly.
+        int confirm_s = std::max(1, cfg_.getInt("land.launch_confirm_s", 2));
+        int buffer_s = std::max(1, cfg_.getInt("rec.launch_buffer_s", 15));
+        int min_buffer_s = confirm_s + 5;
+        if (buffer_s < min_buffer_s) {
+            std::cout << "Recording: rec.launch_buffer_s=" << buffer_s
+                      << " too small for land.launch_confirm_s=" << confirm_s
+                      << ", using " << min_buffer_s << " s" << std::endl;
+            buffer_s = min_buffer_s;
+        }
+        float prelaunch_hz =
+            std::max(0.01f, cfg_.getFloat("rec.prelaunch_hz", 1.0f));
+
+        rec_gps_.configure(25, prelaunch_hz, buffer_s);
+        rec_imu_.configure(std::max(1, cfg_.getInt("rate.imu_hz", 200)),
+                           prelaunch_hz, buffer_s);
+        rec_env_.configure(std::max(1, cfg_.getInt("rate.bme_hz", 10)),
+                           prelaunch_hz, buffer_s);
+        rec_geiger_.configure(1, prelaunch_hz, buffer_s);
 
         csv_gps_.open(session_path_ + "/gps.csv");
         csv_gps_ << "thread_datetime,datetime,fix,latitude,longitude,"

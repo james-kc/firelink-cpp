@@ -56,6 +56,14 @@ const char *kFirelinkPage = R"PAGE(<!DOCTYPE html>
 
   <section>
     <h2>Actions</h2>
+    <div id="armgate" style="margin-bottom:8px">
+      Arming code: <span id="armcode" class="mono"
+        style="font-size:1.3rem; font-weight:700; letter-spacing:0.2em">----</span>
+      <input id="armcodeinput" type="text" inputmode="numeric" maxlength="4"
+             autocomplete="off" placeholder="type code"
+             style="width:6em; display:inline-block;
+                    font-family:ui-monospace, Menlo, monospace">
+    </div>
     <button id="arm">ARM</button>
     <button id="disarm">DISARM</button>
     <button id="recal" class="secondary">Recalibrate pad pressure</button>
@@ -89,6 +97,7 @@ async function poll() {
     badge.textContent = s.state;
     badge.className = 'badge st-' + s.state;
     $('uptime').textContent = Math.floor(s.uptime_s) + 's';
+    $('armgate').style.display = (s.state === 'PREFLIGHT') ? '' : 'none';
 
     const rows = [
       ['GPS', s.gps_ok ? (s.gps_fix ? 'FIX (' + s.gps_sats + ' sats)' : 'no fix') : 'offline',
@@ -102,6 +111,8 @@ async function poll() {
       ['|Accel|', fmt(s.accel_mag, 2) + ' m/s\u00B2'],
       ['Geiger CPM', s.geiger_cpm],
       ['Pad pressure', fmt(s.pad_pressure_hpa, 2) + ' hPa'],
+      ['Launch detected', s.launch_latched ? 'YES' : 'no',
+        s.launch_latched ? 'ok' : ''],
       ['Recording', s.recording ? 'YES \u2192 ' + s.session_dir : 'no',
         s.recording ? 'ok' : ''],
       ['Disk free', s.disk_free_mb + ' MB'],
@@ -121,22 +132,47 @@ function msg(t, bad) {
   m.style.color = bad ? '#f85149' : '#3fb950';
 }
 
+async function loadArmCode() {
+  try {
+    const j = await (await fetch('/api/armcode')).json();
+    $('armcode').textContent = j.code;
+  } catch (e) { $('armcode').textContent = '????'; }
+}
+
+async function postArm(code, force) {
+  const r = await (await fetch('/api/arm', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+    body: 'code=' + encodeURIComponent(code) + (force ? '&force=true' : ''),
+  })).json();
+  return r;
+}
+
 $('arm').onclick = async () => {
-  if (!confirm('Arm the flight computer? Data recording and telemetry will begin.')) return;
-  let r = await (await fetch('/api/arm', {method: 'POST', body: ''})).json();
+  const code = $('armcodeinput').value.trim();
+  if (!/^\d{4}$/.test(code)) {
+    msg('Type the 4-digit arming code shown above to arm.', true);
+    $('armcodeinput').focus();
+    return;
+  }
+  let r = await postArm(code, false);
   if (!r.ok && r.checks_failed) {
     if (confirm('Arm checks failed: ' + r.checks_failed.join(', ') +
                 '\n\nArm anyway (force)?')) {
-      r = await (await fetch('/api/arm', {method: 'POST', body: 'force=true'})).json();
+      r = await postArm(code, true);
     }
   }
   msg(r.ok ? 'Armed. Good flight.' : ('Arm rejected: ' + (r.error || '?')), !r.ok);
+  $('armcodeinput').value = '';
+  loadArmCode();
 };
 
 $('disarm').onclick = async () => {
   const r = await (await fetch('/api/disarm', {method: 'POST', body: ''})).json();
   msg(r.ok ? 'Disarmed.' : ('Disarm failed: ' + (r.error || '?')), !r.ok);
+  loadArmCode();
 };
+loadArmCode();
 
 $('recal').onclick = async () => {
   msg('Measuring pad pressure (keep still)...');

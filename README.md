@@ -32,14 +32,21 @@ Scarecrow and Banshee rockets (MACH 24/25).
    <http://10.42.0.1>. The page shows live sensor status and lets you edit
    settings (sampling rates, radio channel, GPIO pins, ...), recalibrate pad
    pressure, and **arm** the rocket.
-3. **Armed** → all sensors stream to timestamped CSVs under
-   `data/<session>/` (columns match firelink-py so existing
-   `post_flight/` analysis keeps working) and GPS + flight telemetry is
-   transmitted over LoRa.
-4. **Landed** → detected automatically (IMU and baro quiet for
-   `land.window_s` seconds); the buzzer plays, and the radio drops to a
-   low-rate **GPS beacon** for recovery. Walk up, rejoin the WiFi, disarm,
-   and download the CSVs straight from the page.
+3. **Armed** → arming requires typing the 4-digit code freshly generated on
+   the web page each load (anti-accidental-arm interlock). Once armed, all
+   sensors stream to timestamped CSVs under `data/<session>/` (columns match
+   firelink-py so existing `post_flight/` analysis keeps working) and GPS +
+   flight telemetry is transmitted over LoRa. While waiting on the pad the
+   CSVs are written at a decimated pad rate (`rec.prelaunch_hz`); when a
+   launch is detected, the last `rec.launch_buffer_s` seconds are back-filled
+   at full rate from a RAM ring buffer and recording continues at full rate,
+   so the launch is never lost and long pad holds don't bloat the files.
+   Every row is timestamped, so the pad-rate → full-rate boundary is visible
+   in the row spacing (and `events.log` records the moment explicitly).
+4. **Landed** → detected automatically (launch must first be latched, then
+   IMU and baro quiet for `land.window_s` seconds); the buzzer plays, and
+   the radio drops to a low-rate **GPS beacon** for recovery. Walk up,
+   rejoin the WiFi, disarm, and download the CSVs straight from the page.
 5. **Meshtastic** → the portable Meshtastic node flown in the rocket is a
    fully independent position beacon (own power + RF); watch it in the
    usual Meshtastic app.

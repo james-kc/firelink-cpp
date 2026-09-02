@@ -7,7 +7,9 @@
 
 // Flight state machine: BOOT is entered at process start, transitions to
 // PREFLIGHT as soon as initialisation completes. ARMED is requested from the
-// web page. LANDED is entered automatically (acceleration + altitude quiet
+// web page (4-digit confirmation code required). While ARMED a launch is
+// latched from baro altitude gain or sustained high-g; LANDED is entered
+// automatically only after a latched launch (acceleration + altitude quiet
 // for a configurable window) or manually via disarm after touchdown.
 enum class FlightState : uint8_t {
     BOOT      = 0,

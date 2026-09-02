@@ -15,7 +15,9 @@
 //   GET  /api/status       live status JSON (state, sensors, GPS, disk)
 //   GET  /api/config       full config as JSON
 //   POST /api/config       urlencoded key=value pairs; persists to disk
-//   POST /api/arm          arm the flight computer (force=true overrides checks)
+//   GET  /api/armcode      fresh 4-digit arming code (displayed on the page)
+//   POST /api/arm          arm the flight computer (code must match the one
+//                          shown on the page; force=true overrides checks)
 //   POST /api/disarm       return to pre-flight / post-flight idle
 //   POST /api/recalibrate  re-measure pad pressure
 //   POST /api/restart      restart the process (systemd relaunches it)
@@ -28,7 +30,8 @@ class WebServer {
 public:
     struct Handlers {
         std::function<std::string()> getStatusJson;
-        std::function<std::string(bool force)> arm;        // returns result JSON
+        std::function<std::string(const std::string &code, bool force)> arm; // returns result JSON
+        std::function<std::string()> getArmCode;           // returns {"code":"1234"}
         std::function<std::string()> disarm;               // returns result JSON
         std::function<std::string()> recalibrate;          // returns result JSON
         std::function<std::string(const std::string &relativePath)> readDataFile; // empty = not found

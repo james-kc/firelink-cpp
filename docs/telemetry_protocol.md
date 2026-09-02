@@ -59,7 +59,10 @@ Python struct format for a full telemetry frame (both sides must agree):
 | 12     | ≤37  | text  | char | ASCII status, e.g. `ARMED`   |
 | ...    |      | pad   | —    | zero padding to byte 45      |
 
-Status frames are sent on state transitions (ARMED, LANDED, DISARMED).
+Status frames are sent on state transitions and flight events (ARMED,
+LAUNCHED, LANDED, DISARMED). LAUNCHED is sent when the launch latch trips
+(baro altitude gain or sustained high-g while ARMED); the state byte remains
+ARMED until landing detection.
 
 ## Link budget / rates
 
