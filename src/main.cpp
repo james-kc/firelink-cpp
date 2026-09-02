@@ -575,6 +575,13 @@ public:
         float min_flight_s = cfg_.getFloat("land.min_flight_s", 20);
         if (snap.arm_time_ms == 0 ||
             (steadyMs() - snap.arm_time_ms) < (uint64_t)(min_flight_s * 1000)) {
+            if (cfg_.getBool("land.debug", false)) {
+                static int n0 = 0;
+                if (++n0 % 5 == 0)
+                    std::cout << "landgate0 min_flight not met: elapsed="
+                              << (snap.arm_time_ms ? (steadyMs() - snap.arm_time_ms) : 0)
+                              << std::endl;
+            }
             return;
         }
 
@@ -584,8 +591,16 @@ public:
         uint64_t window_ms = (uint64_t)cfg_.getFloat("land.window_s", 15) * 1000;
         while (!land_history_.empty() && now - land_history_.front().t_ms > window_ms)
             land_history_.pop_front();
-        if (now - land_history_.front().t_ms < window_ms)
-            return; // window not yet full
+        if (now - land_history_.front().t_ms < window_ms) {
+            if (cfg_.getBool("land.debug", false)) {
+                static int n1 = 0;
+                if (++n1 % 5 == 0)
+                    std::cout << "landgate1 window filling: age="
+                              << (now - land_history_.front().t_ms) << "/"
+                              << window_ms << std::endl;
+            }
+            return;
+        }
 
         float accel_tol = cfg_.getFloat("land.accel_tol", 1.5f);
         float alt_tol = cfg_.getFloat("land.alt_tol_m", 3.0f);
