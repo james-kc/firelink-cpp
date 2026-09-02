@@ -604,6 +604,14 @@ public:
             sendStatus("LANDED");
             landedMelodyAsync();
             std::cout << "Landing detected -> low-rate beacon mode" << std::endl;
+        } else if (cfg_.getBool("land.debug", false)) {
+            float max_dev = 0.0f;
+            for (const auto &s : land_history_)
+                max_dev = std::max(max_dev, std::fabs(s.accel_mag - 9.80665f));
+            std::cout << "landdbg n=" << land_history_.size()
+                      << " quiet=" << quiet << " max_accel_dev=" << max_dev
+                      << " alt_spread=" << (alt_max - alt_min)
+                      << " tol=" << accel_tol << "/" << alt_tol << std::endl;
         }
     }
 
