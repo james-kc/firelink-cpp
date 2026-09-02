@@ -44,9 +44,10 @@ Scarecrow and Banshee rockets (MACH 24/25).
    Every row is timestamped, so the pad-rate → full-rate boundary is visible
    in the row spacing (and `events.log` records the moment explicitly).
 4. **Landed** → detected automatically (launch must first be latched, then
-   IMU and baro quiet for `land.window_s` seconds); the buzzer plays, and
-   the radio drops to a low-rate **GPS beacon** for recovery. Walk up,
-   rejoin the WiFi, disarm, and download the CSVs straight from the page.
+   IMU and baro quiet for `land.window_s` seconds); the buzzer plays, CSV
+   recording drops to `rec.landed_hz`, and the radio drops to a low-rate
+   **GPS beacon** for recovery. Walk up, rejoin the WiFi, disarm, and
+   download the CSVs straight from the page.
 5. **Meshtastic** → the portable Meshtastic node flown in the rocket is a
    fully independent position beacon (own power + RF); watch it in the
    usual Meshtastic app.

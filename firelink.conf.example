@@ -65,8 +65,10 @@ land.alt_tol_m=3
 # full rate, so the launch itself is always captured in full-rate data.
 # rec.launch_buffer_s must cover the launch detector's own latency; anything
 # below launch_confirm_s + 5 s is raised with a warning at arm time.
+# Once landed, recording drops to rec.landed_hz (decimated write-through).
 rec.prelaunch_hz=1
 rec.launch_buffer_s=15
+rec.landed_hz=1
 
 # ---- Geiger ----------------------------------------------------------------
 geiger.cpm_per_usvh=153

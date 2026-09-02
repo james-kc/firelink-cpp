@@ -9,7 +9,8 @@
 //             altitude gain or sustained high-g), then back-filled at full
 //             rate from a RAM ring buffer so the launch is always captured in
 //             full-rate data. After landing is detected (IMU + baro quiet)
-//             the computer drops to a low-rate GPS beacon until disarmed.
+//             the computer drops CSV rows to a low landed rate and the radio
+//             to a low-rate GPS beacon until disarmed.
 
 #include "config.h"
 #include "state.h"
@@ -91,29 +92,36 @@ static std::string jsonEscape(const std::string &s) {
     return out;
 }
 
-// Pre-select recorder for one CSV stream. While launch is not yet latched,
-// fully formatted rows (timestamp fixed at capture time) accumulate in a RAM
-// ring buffer; rows evicted from the buffer are written to the file decimated
-// to a low pad rate. Once the launch latch is observed, the whole buffer is
-// back-filled at full rate and subsequent rows write through, so the launch
-// itself is always captured in full-rate data. Rows are strictly time-ordered
-// with no duplicates.
+// Pre-select recorder for one CSV stream. Three phases:
+//   PAD:    rows (timestamp fixed at capture time) accumulate in a RAM ring
+//           buffer; rows evicted from the buffer are written decimated to
+//           rec.prelaunch_hz.
+//   FLIGHT: the launch latch has been observed; the whole buffer is
+//           back-filled at full rate once, then rows write through, so the
+//           launch itself is always captured in full-rate data.
+//   LANDED: rows write through decimated to rec.landed_hz.
+// Rows are strictly time-ordered with no duplicates. Leaving PAD for any
+// reason flushes the buffer, so no pre-launch rows are ever dropped.
 class PreSelectRecorder {
 public:
-    void configure(int stream_hz, float prelaunch_hz, int buffer_s) {
+    enum class Mode { PAD, FLIGHT, LANDED };
+
+    void configure(int stream_hz, float prelaunch_hz, float landed_hz,
+                   int buffer_s) {
         capacity_ = std::max(1, stream_hz * std::max(1, buffer_s));
-        decim_ = std::max(1, (int)std::lround(
-            stream_hz / (double)std::max(0.01f, prelaunch_hz)));
+        pad_decim_ = decimation(stream_hz, prelaunch_hz);
+        landed_decim_ = decimation(stream_hz, landed_hz);
         ring_.clear();
-        evict_count_ = 0;
+        pad_evict_ = 0;
+        landed_seen_ = 0;
         latched_ = false;
     }
 
     // Records one row; returns the number of buffered rows back-filled at
-    // the moment the latch is first observed, 0 otherwise.
-    int push(const std::string &row, std::ofstream &out, bool full_rate) {
-        if (full_rate) latched_ = true;
-        if (latched_) {
+    // the moment the pad phase is left, 0 otherwise.
+    int push(const std::string &row, std::ofstream &out, Mode mode) {
+        if (mode != Mode::PAD && !latched_) {
+            latched_ = true;
             int backfilled = (int)ring_.size();
             while (!ring_.empty()) {
                 out << ring_.front() << '\n';
@@ -122,19 +130,32 @@ public:
             out << row << '\n';
             return backfilled;
         }
-        ring_.push_back(row);
-        if ((int)ring_.size() > capacity_) {
-            if (evict_count_ % decim_ == 0) out << ring_.front() << '\n';
-            ++evict_count_;
-            ring_.pop_front();
+        if (mode == Mode::PAD) {
+            ring_.push_back(row);
+            if ((int)ring_.size() > capacity_) {
+                if (pad_evict_ % pad_decim_ == 0) out << ring_.front() << '\n';
+                ++pad_evict_;
+                ring_.pop_front();
+            }
+        } else if (mode == Mode::FLIGHT) {
+            out << row << '\n';
+        } else { // LANDED: decimated write-through
+            if (++landed_seen_ % landed_decim_ == 0) out << row << '\n';
         }
         return 0;
     }
 
 private:
+    static int decimation(int stream_hz, float hz) {
+        return std::max(1, (int)std::lround(
+            stream_hz / (double)std::max(0.01f, hz)));
+    }
+
     int capacity_ = 1;
-    int decim_ = 1;
-    long evict_count_ = 0;
+    int pad_decim_ = 1;
+    int landed_decim_ = 1;
+    long pad_evict_ = 0;
+    long landed_seen_ = 0;
     bool latched_ = false;
     std::deque<std::string> ring_;
 };
@@ -185,38 +206,41 @@ public:
                           f.longitude, (float)f.altitude_m,
                           (float)f.speed_kmh, steadyMs());
 
-            if (recordingActive()) {
-                int backfilled = 0;
-                {
-                    std::lock_guard<std::mutex> lk(csv_mu_);
-                    if (csv_gps_.is_open() && f.hasFix) {
-                        double lat_deg, lat_min, lon_deg, lon_min;
-                        splitDegMin(f.latitude, lat_deg, lat_min);
-                        splitDegMin(f.longitude, lon_deg, lon_min);
-                        std::ostringstream row;
-                        row << utcTimestampMs() << ','
-                            << f.utc_time << ','
-                            << f.fixQuality << ','
-                            << f.latitude << ','
-                            << f.longitude << ','
-                            << (int)lat_deg << ','
-                            << lat_min << ','
-                            << (int)lon_deg << ','
-                            << lon_min << ','
-                            << f.satellites << ','
-                            << f.altitude_m << ','
-                            << f.speed_kmh / 1.852 << ','
-                            << f.track_deg << ','
-                            << f.hdop << ','
-                            << f.geoid_height_m;
-                        backfilled = rec_gps_.push(row.str(), csv_gps_,
-                                                   launch_detected_.load());
-                        csv_gps_.flush();
+            {
+                Snapshot rs = state_.get();
+                if (rs.recording) {
+                    int backfilled = 0;
+                    {
+                        std::lock_guard<std::mutex> lk(csv_mu_);
+                        if (csv_gps_.is_open() && f.hasFix) {
+                            double lat_deg, lat_min, lon_deg, lon_min;
+                            splitDegMin(f.latitude, lat_deg, lat_min);
+                            splitDegMin(f.longitude, lon_deg, lon_min);
+                            std::ostringstream row;
+                            row << utcTimestampMs() << ','
+                                << f.utc_time << ','
+                                << f.fixQuality << ','
+                                << f.latitude << ','
+                                << f.longitude << ','
+                                << (int)lat_deg << ','
+                                << lat_min << ','
+                                << (int)lon_deg << ','
+                                << lon_min << ','
+                                << f.satellites << ','
+                                << f.altitude_m << ','
+                                << f.speed_kmh / 1.852 << ','
+                                << f.track_deg << ','
+                                << f.hdop << ','
+                                << f.geoid_height_m;
+                            backfilled = rec_gps_.push(row.str(), csv_gps_,
+                                                       recordMode(rs));
+                            csv_gps_.flush();
+                        }
                     }
+                    if (backfilled > 0)
+                        logEvent("LAUNCH backfill: " + std::to_string(backfilled) +
+                                 " gps rows");
                 }
-                if (backfilled > 0)
-                    logEvent("LAUNCH backfill: " + std::to_string(backfilled) +
-                             " gps rows");
             }
             std::this_thread::sleep_for(std::chrono::milliseconds(40));
         }
@@ -246,27 +270,30 @@ public:
             float mag = std::sqrt(ax * ax + ay * ay + az * az);
             state_.setImu(ax, ay, az, gx, gy, gz, mag, steadyMs());
 
-            if (recordingActive()) {
-                int backfilled = 0;
-                {
-                    std::lock_guard<std::mutex> lk(csv_mu_);
-                    if (csv_imu_.is_open()) {
-                        std::ostringstream row;
-                        row << utcTimestampMs() << ','
-                            << ax << ',' << ay << ',' << az << ','
-                            << gx << ',' << gy << ',' << gz;
-                        backfilled = rec_imu_.push(row.str(), csv_imu_,
-                                                   launch_detected_.load());
-                        // Flush opportunistically ~once per second of samples.
-                        if (++imu_rows_since_flush_ >= 100) {
-                            csv_imu_.flush();
-                            imu_rows_since_flush_ = 0;
+            {
+                Snapshot rs = state_.get();
+                if (rs.recording) {
+                    int backfilled = 0;
+                    {
+                        std::lock_guard<std::mutex> lk(csv_mu_);
+                        if (csv_imu_.is_open()) {
+                            std::ostringstream row;
+                            row << utcTimestampMs() << ','
+                                << ax << ',' << ay << ',' << az << ','
+                                << gx << ',' << gy << ',' << gz;
+                            backfilled = rec_imu_.push(row.str(), csv_imu_,
+                                                       recordMode(rs));
+                            // Flush opportunistically ~once per second of samples.
+                            if (++imu_rows_since_flush_ >= 100) {
+                                csv_imu_.flush();
+                                imu_rows_since_flush_ = 0;
+                            }
                         }
                     }
+                    if (backfilled > 0)
+                        logEvent("LAUNCH backfill: " + std::to_string(backfilled) +
+                                 " accelerometer rows");
                 }
-                if (backfilled > 0)
-                    logEvent("LAUNCH backfill: " + std::to_string(backfilled) +
-                             " accelerometer rows");
             }
 
             next += std::chrono::microseconds(period_us);
@@ -297,25 +324,28 @@ public:
             state_.setEnv(pressure, alt_rel, temp, hum, steadyMs());
             state_.noteMaxValues(alt_rel, 0);
 
-            if (recordingActive()) {
-                int backfilled = 0;
-                {
-                    std::lock_guard<std::mutex> lk(csv_mu_);
-                    if (csv_env_.is_open()) {
-                        std::ostringstream row;
-                        row << utcTimestampMs() << ','
-                            << alt_rel << ','
-                            << pressure << ','
-                            << temp << ','
-                            << hum;
-                        backfilled = rec_env_.push(row.str(), csv_env_,
-                                                   launch_detected_.load());
-                        csv_env_.flush();
+            {
+                Snapshot rs = state_.get();
+                if (rs.recording) {
+                    int backfilled = 0;
+                    {
+                        std::lock_guard<std::mutex> lk(csv_mu_);
+                        if (csv_env_.is_open()) {
+                            std::ostringstream row;
+                            row << utcTimestampMs() << ','
+                                << alt_rel << ','
+                                << pressure << ','
+                                << temp << ','
+                                << hum;
+                            backfilled = rec_env_.push(row.str(), csv_env_,
+                                                       recordMode(rs));
+                            csv_env_.flush();
+                        }
                     }
+                    if (backfilled > 0)
+                        logEvent("LAUNCH backfill: " + std::to_string(backfilled) +
+                                 " barometer rows");
                 }
-                if (backfilled > 0)
-                    logEvent("LAUNCH backfill: " + std::to_string(backfilled) +
-                             " barometer rows");
             }
             std::this_thread::sleep_for(std::chrono::milliseconds(period_ms));
         }
@@ -348,23 +378,26 @@ public:
                 (double)window_counts * 60000.0 / (double)window_ms);
             state_.setGeiger(cpm, window_counts, now);
 
-            if (recordingActive()) {
-                int backfilled = 0;
-                {
-                    std::lock_guard<std::mutex> lk(csv_mu_);
-                    if (csv_geiger_.is_open()) {
-                        std::ostringstream row;
-                        row << utcTimestampMs() << ','
-                            << window_counts << ','
-                            << cpm;
-                        backfilled = rec_geiger_.push(row.str(), csv_geiger_,
-                                                      launch_detected_.load());
-                        csv_geiger_.flush();
+            {
+                Snapshot rs = state_.get();
+                if (rs.recording) {
+                    int backfilled = 0;
+                    {
+                        std::lock_guard<std::mutex> lk(csv_mu_);
+                        if (csv_geiger_.is_open()) {
+                            std::ostringstream row;
+                            row << utcTimestampMs() << ','
+                                << window_counts << ','
+                                << cpm;
+                            backfilled = rec_geiger_.push(row.str(), csv_geiger_,
+                                                          recordMode(rs));
+                            csv_geiger_.flush();
+                        }
                     }
+                    if (backfilled > 0)
+                        logEvent("LAUNCH backfill: " + std::to_string(backfilled) +
+                                 " geiger rows");
                 }
-                if (backfilled > 0)
-                    logEvent("LAUNCH backfill: " + std::to_string(backfilled) +
-                             " geiger rows");
             }
         }
     }
@@ -763,9 +796,14 @@ private:
         min = (a - deg) * 60.0;
     }
 
-    bool recordingActive() {
-        Snapshot s = state_.get();
-        return s.recording;
+    // Recorder phase for one fresh CSV row: decimated pad rate until the
+    // launch latch trips, full rate while armed after that, decimated again
+    // once landed. LANDED is checked first: the launch latch may still be
+    // latched then, but the flight is over and we want the landed rate.
+    PreSelectRecorder::Mode recordMode(const Snapshot &s) {
+        if (s.state == FlightState::LANDED) return PreSelectRecorder::Mode::LANDED;
+        return launch_detected_.load() ? PreSelectRecorder::Mode::FLIGHT
+                                       : PreSelectRecorder::Mode::PAD;
     }
 
     float quickPadPressure(BME280 &bme, int samples) {
@@ -800,13 +838,15 @@ private:
         }
         float prelaunch_hz =
             std::max(0.01f, cfg_.getFloat("rec.prelaunch_hz", 1.0f));
+        float landed_hz =
+            std::max(0.01f, cfg_.getFloat("rec.landed_hz", 1.0f));
 
-        rec_gps_.configure(25, prelaunch_hz, buffer_s);
+        rec_gps_.configure(25, prelaunch_hz, landed_hz, buffer_s);
         rec_imu_.configure(std::max(1, cfg_.getInt("rate.imu_hz", 200)),
-                           prelaunch_hz, buffer_s);
+                           prelaunch_hz, landed_hz, buffer_s);
         rec_env_.configure(std::max(1, cfg_.getInt("rate.bme_hz", 10)),
-                           prelaunch_hz, buffer_s);
-        rec_geiger_.configure(1, prelaunch_hz, buffer_s);
+                           prelaunch_hz, landed_hz, buffer_s);
+        rec_geiger_.configure(1, prelaunch_hz, landed_hz, buffer_s);
 
         csv_gps_.open(session_path_ + "/gps.csv");
         csv_gps_ << "thread_datetime,datetime,fix,latitude,longitude,"
