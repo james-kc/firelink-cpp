@@ -52,6 +52,18 @@ int testNmea() {
     CHECK("void rmc parsed", ok);
     CHECK("void rmc no fix", !fix.hasFix);
 
+    // GGA fix quality 0 must drop an already-cached fix (the case the web
+    // UI depends on when the module reports "no fix" while still alive).
+    NmeaFix fix0;
+    fix0.hasFix = true;
+    fix0.satellites = 9;
+    ok = nmeaParseGga(
+        "$GNGGA,123522.00,5550.5809,N,00314.4025,W,0,00,0.0,0.0,M,47.0,M,,",
+        fix0);
+    CHECK("gga 0 parsed", ok);
+    CHECK("gga 0 no fix", !fix0.hasFix);
+    CHECK("gga 0 sats", fix0.satellites == 0);
+
     // Non-matching sentences are rejected cleanly.
     CHECK("rejects gsa", !nmeaParseGga("$GPGSA,A,3,,,,,,,,,,,,,,,,", fix));
     CHECK("rejects short", !nmeaParseGga("$GNGGA,1,2,3", fix));

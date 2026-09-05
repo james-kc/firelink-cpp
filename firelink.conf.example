@@ -31,6 +31,21 @@ rate.landed_telemetry_hz=0.2
 gps.update_hz=5
 geiger.window_s=60
 
+# ---- GPS freshness ---------------------------------------------------------
+# If no NMEA sentence arrives for this long, the fix is reported as lost
+# (web UI, telemetry and arming checks) instead of caching the last one.
+gps.stale_after_s=10
+# Print every raw NMEA line to stdout (diagnostics; noisy).
+gps.debug=false
+
+# ---- Barometer calibration -------------------------------------------------
+# Pad pressure is sampled that many times (1 s apart); samples further than
+# bme.recalibrate_reject_delta_hpa from the median are dropped as corrupt
+# (interleaved-bus reads, power dips) so a single spike can't skew the
+# zero reference and push relative_altitude to -300 m.
+bme.calibrate_samples=12
+bme.recalibrate_reject_delta_hpa=0.5
+
 # ---- IMU -------------------------------------------------------------------
 imu.accel_range_g=16
 imu.gyro_range_dps=2000

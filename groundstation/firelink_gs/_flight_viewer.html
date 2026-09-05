@@ -1,0 +1,604 @@
+<!-- GENERATED from src/web/flight_page.cpp by groundstation/tools/sync_viewer.py - do not edit by hand. -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Firelink - flight</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body { font-family: -apple-system, "Segoe UI", Roboto, sans-serif; margin: 0;
+         background: #0d1117; color: #e6edf3; }
+  header { display: flex; align-items: center; flex-wrap: wrap; gap: 10px;
+           padding: 12px 18px; background: #161b22;
+           border-bottom: 1px solid #30363d; }
+  h1 { font-size: 1.15rem; margin: 0; letter-spacing: 0.05em; }
+  a { color: #58a6ff; }
+  main { padding: 14px; max-width: 1080px; margin: 0 auto; display: grid; gap: 14px; }
+  section { background: #161b22; border: 1px solid #30363d; border-radius: 10px;
+            padding: 14px 16px; }
+  h2 { margin: 0 0 10px; font-size: 0.85rem; text-transform: uppercase;
+       letter-spacing: 0.08em; color: #8b949e; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+          gap: 8px; }
+  .kv { background: #0d1117; border-radius: 8px; padding: 8px 10px; }
+  .kv .k { font-size: 0.7rem; color: #8b949e; text-transform: uppercase; }
+  .kv .v { font-size: 1rem; font-weight: 600; margin-top: 2px; }
+  canvas { width: 100%; height: 240px; background: #0d1117;
+           border: 1px solid #21262d; border-radius: 8px; display: block; }
+  #track-canvas { height: 260px; }
+  select, button { background: #30363d; color: #e6edf3; border: 0; border-radius: 6px;
+                   padding: 6px 10px; font-size: 0.9rem; cursor: pointer; }
+  .legend { font-size: 0.78rem; color: #8b949e; margin-top: 6px; }
+  .legend span { margin-right: 14px; }
+  .sw { display: inline-block; width: 10px; height: 3px; vertical-align: middle;
+        margin-right: 4px; border-radius: 2px; }
+  .strip { position: relative; height: 26px; background: #0d1117; border-radius: 6px;
+           overflow: hidden; border: 1px solid #21262d; }
+  .strip i { position: absolute; top: 0; bottom: 0; display: block; }
+  table { width: 100%; border-collapse: collapse; font-size: 0.83rem; }
+  td, th { padding: 4px 6px; text-align: left; border-bottom: 1px solid #21262d; }
+  .st-PREFLIGHT { background: #1f6feb; } .st-ARMED { background: #da3633; }
+  .st-LANDED { background: #2da44e; } .st-BOOT { background: #6e7681; }
+  #msg { min-height: 1.2em; font-size: 0.85rem; color: #f85149; }
+ .missing { color: #8b949e; font-style: italic; }
+</style>
+</head>
+<body>
+<header>
+  <h1>FIRELINK <span style="color:#8b949e">/</span>
+    <span id="session-name" class="mono">flight</span></h1>
+  <select id="sessions"></select>
+  <a id="back" href="/">&#8592; control page</a>
+  <span id="msg"></span>
+</header>
+<main>
+  <section id="stats-sec">
+    <h2>Flight summary</h2>
+    <div class="grid" id="stats"></div>
+  </section>
+  <section>
+    <h2>Altitude</h2>
+    <canvas id="alt-canvas"></canvas>
+    <div class="legend"><span><i class="sw" style="background:#58a6ff"></i>baro relative (m)</span>
+      <span><i class="sw" style="background:#f0883e"></i>GPS (m)</span></div>
+  </section>
+  <section>
+    <h2>Acceleration</h2>
+    <canvas id="acc-canvas"></canvas>
+    <div class="legend"><span><i class="sw" style="background:#d2a8ff"></i>|a| (g)</span>
+      <span><i class="sw" style="background:#7ee787"></i>vertical load (g)</span>
+      <span><i class="sw" style="background:#8b949e"></i>1 g level</span></div>
+  </section>
+  <section>
+    <h2>Velocity (derived)</h2>
+    <canvas id="vel-canvas"></canvas>
+    <div class="legend"><span><i class="sw" style="background:#f0883e"></i>&#8747;(a&#8722;g)dt (m/s)</span>
+      <span><i class="sw" style="background:#8b949e"></i>d(baro alt)/dt (m/s)</span></div>
+  </section>
+  <section>
+    <h2>GPS track</h2>
+    <canvas id="track-canvas"></canvas>
+  </section>
+  <section id="evt-sec">
+    <h2>Events &amp; state</h2>
+    <div class="strip" id="strip"></div>
+    <table id="events"></table>
+  </section>
+</main>
+<script>
+'use strict';
+const $ = id => document.getElementById(id);
+
+function csvParse(text) {
+  const rows = []; let cur = '', rec = [], i = 0, inQ = false;
+  while (i < text.length) {
+    const c = text[i];
+    if (inQ) { if (c === '"') { if (text[i+1] === '"') { cur += '"'; i += 2; } else { inQ = false; i++; } } else { cur += c; i++; } }
+    else if (c === '"') { inQ = true; i++; }
+    else if (c === ',') { rec.push(cur); cur = ''; i++; }
+    else if (c === '\n' || c === '\r') {
+      if (c === '\r' && text[i+1] === '\n') i++;
+      i++;
+      if (rec.length || cur.length) { rec.push(cur); rows.push(rec); rec = []; cur = ''; }
+    } else { cur += c; i++; }
+  }
+  if (rec.length || cur.length) { rec.push(cur); rows.push(rec); }
+  return rows;
+}
+function toObjects(rows) {
+  if (!rows.length) return [];
+  const head = rows[0].map(h => h.trim());
+  const out = [];
+  for (let r = 1; r < rows.length; r++) {
+    const o = {}; for (let c = 0; c < head.length; c++) o[head[c]] = rows[r][c];
+    out.push(o);
+  }
+  return out;
+}
+function num(v) { const x = parseFloat(v); return isFinite(x) ? x : NaN; }
+function parseTime(s) {
+  s = (s || '').trim();
+  let m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})\s+(\d{1,2}):(\d{2}):(\d{2})(?:\.(\d{1,3}))?/);
+  if (m) return Date.UTC(+m[3], +m[2]-1, +m[1], +m[4], +m[5], +m[6], +(m[7]||'0')) / 1000;
+  m = s.match(/^(\d{4})-(\d{2})-(\d{2})[T ](\d{1,2}):(\d{2}):(\d{2})(?:\.(\d{1,3}))?/);
+  if (m) return Date.UTC(+m[1], +m[2]-1, +m[3], +m[4], +m[5], +m[6], +(m[7]||'0')) / 1000;
+  return NaN;
+}
+
+async function fetchText(url) {
+  const r = await fetch(url);
+  if (!r.ok) throw new Error('HTTP ' + r.status + ' ' + url);
+  return await r.text();
+}
+
+// ---- data model ----
+const D = {
+  name: '', t0: NaN,
+  baro_t: [], baro_alt: [], baro_p: [], baro_temp: [], baro_hum: [],
+  accel_t: [], ax: [], ay: [], az: [],
+  gps_t: [], gps_lat: [], gps_lon: [], gps_alt: [], gps_sats: [], gps_spd: [],
+  geiger_t: [], cpm: [],
+  states: [],   // [{t, name}] transitions (GS mode)
+  events: [],   // [{t, text}] from events.log
+  pad_hpa: null,
+};
+function resetD() {
+  for (const k in D) D[k] = Array.isArray(D[k]) ? [] : D[k];
+  D.name = ''; D.t0 = NaN; D.pad_hpa = null;
+}
+function pushNum(arr, arrT, t, v) { if (isFinite(t) && isFinite(v)) { arr.push(v); arrT.push(anchor(t)); } }
+function anchor(t) { if (isFinite(t) && !isFinite(D.t0) || isFinite(t) && t < D.t0) D.t0 = isFinite(D.t0) ? Math.min(D.t0, t) : t; return isFinite(D.t0) ? t - D.t0 : NaN; }
+function rel(epoch) { return isFinite(epoch) && isFinite(D.t0) ? epoch - D.t0 : NaN; }
+
+function ingestBaro(rows) {
+  for (const r of rows) {
+    const e = parseTime(r.timestamp || r.rx_time);
+    pushNum(D.baro_alt, D.baro_t, e, num(r.relative_altitude ?? r.baro_alt_rel_m));
+    if (r.pressure_hpa != null) D.baro_p.push(num(r.pressure_hpa));
+    if (r.temperature_c != null) D.baro_temp.push(num(r.temperature_c));
+    if (r.humidity_pct != null) D.baro_hum.push(num(r.humidity_pct));
+    if (isFinite(e)) anchor(e);
+  }
+}
+function ingestAccel(rows, gMode) {
+  for (const r of rows) {
+    const e = parseTime(r.timestamp || r.rx_time);
+    const g = gMode ? 9.80665 : 1;
+    const ax = num(r.accel_x ?? r.ax_g) * g, ay = num(r.accel_y ?? r.ay_g) * g, az = num(r.accel_z ?? r.az_g) * g;
+    if (isFinite(e)) {
+      anchor(e);
+      D.accel_t.push(e - D.t0);
+      D.ax.push(ax); D.ay.push(ay); D.az.push(az);
+    }
+  }
+}
+function ingestGps(rows) {
+  for (const r of rows) {
+    const e = parseTime(r.thread_datetime || r.datetime || r.rx_time || r.timestamp);
+    if (!isFinite(e)) continue;
+    let lat = num(r.latitude ?? r.lat), lon = num(r.longitude ?? r.lon);
+    if (!isFinite(lat) || !isFinite(lon)) continue;
+    const sats = num(r.satellites ?? r.sats ?? 0);
+    const fix = (r.fix != null) ? (num(r.fix) > 0) : (sats > 0);
+    if (!fix || Math.abs(lat) > 90 || Math.abs(lon) > 180) continue;
+    anchor(e);
+    D.gps_t.push(e - D.t0);
+    D.gps_lat.push(lat); D.gps_lon.push(lon);
+    D.gps_alt.push(num(r.altitude_m ?? r.gps_alt_m));
+    D.gps_sats.push(sats);
+    D.gps_spd.push(num(r.speed_kmh ?? (r.speed_knots != null ? num(r.speed_knots) * 1.852 : 0)));
+  }
+}
+function ingestGeiger(rows) {
+  for (const r of rows) {
+    if (r.cpm == null) continue;
+    const e = parseTime(r.timestamp || r.rx_time);
+    pushNum(D.cpm, D.geiger_t, e, num(r.cpm));
+    if (isFinite(e)) anchor(e);
+  }
+}
+function ingestStates(rows) {
+  let last = null;
+  for (const r of rows) {
+    const name = (r.state_name || '').trim();
+    if (!name || name === last) { last = name; continue; }
+    last = name;
+    const e = parseTime(r.rx_time || r.timestamp);
+    if (isFinite(e)) D.states.push({ t: e - D.t0, name });
+  }
+}
+
+function ingestEvents(text) {
+  const lines = (text || '').split(/\r?\n/).filter(Boolean);
+  const stateRe = /^state:\s*(\w+)\s*->\s*(\w+)(?:\s*\((.+)\))?$/;
+  const padRe = /^PAD pressure recalibrated to ([\d.]+) hPa/;
+  for (const line of lines) {
+    const m = line.match(/^(\d{1,2}\/\d{1,2}\/\d{4} \d{1,2}:\d{2}:\d{2}(?:\.\d{1,3})?)\s+(.*)$/);
+    if (!m) continue;
+    const e = parseTime(m[1]);
+    if (!isFinite(e)) continue;
+    anchor(e);
+    const t = e - D.t0, text = m[2];
+    const st = text.match(stateRe);
+    if (st) D.states.push({ t, from: st[1], to: st[2], reason: st[3] || '' });
+    D.events.push({ t, text });
+    const pm = text.match(padRe);
+    if (pm) D.pad_hpa = parseFloat(pm[1]);
+  }
+  D.events.sort((a, b) => a.t - b.t);
+}
+
+// ---- analysis ----
+function magArray(ax, ay, az) {
+  return ax.map((_, i) => Math.hypot(ax[i], ay[i], az[i]));
+}
+const G = 9.80665;
+function derivedVelocity() {
+  // Vertical velocity from IMU + barometer as a complementary filter, so the
+  // pure-integration drift (a lightly mis-estimated gravity axis ramps the
+  // integral linearly over a session) never survives:
+  //   v = HPF(∫aVert dt, τ=6 s)  +  LPF(baro velocity, τ=6 s)
+  // The high-passed integral keeps launch/impact dynamics without any DC
+  // wander; the low-passed baro velocity carries the sustained component.
+  // The gravity axis and a vertical bias come from quiet samples (|a|~1 g),
+  // and during sustained quiet stretches (≥0.3 s: on the pad, after landing,
+  // smooth terminal descent) the estimate snaps to the baro velocity.
+  const n = D.accel_t.length;
+  const out = { t: [], v: [], load: [] };
+  if (n < 4) return out;
+  const mag = magArray(D.ax, D.ay, D.az);
+  let sx = 0, sy = 0, sz = 0, sq = 0;
+  for (let i = 0; i < n; i++) {
+    if (Math.abs(mag[i] - G) < 0.15) { sx += D.ax[i]; sy += D.ay[i]; sz += D.az[i]; sq++; }
+  }
+  const mm = Math.hypot(sx, sy, sz) / (sq || 1) || G;
+  const ux = sx / (mm * sq || 1), uy = sy / (mm * sq || 1), uz = sz / (mm * sq || 1);
+  let bias = 0, bq = 0;
+  for (let i = 0; i < n; i++) {
+    if (Math.abs(mag[i] - G) < 0.15) {
+      bias += D.ax[i] * ux + D.ay[i] * uy + D.az[i] * uz - G;
+      bq++;
+    }
+  }
+  bias = bq ? bias / bq : 0;
+  const bv = baroVelocity();
+  const TAU = 6.0; // complementary crossover (s)
+  let I = 0, Il = 0, vbL = 0, v = 0, quietT = 0, bi = 0;
+  for (let i = 0; i < n; i++) {
+    const t = D.accel_t[i];
+    const load = D.ax[i] * ux + D.ay[i] * uy + D.az[i] * uz;
+    const dt = i ? Math.max(0, t - D.accel_t[i - 1]) : 0;
+    const aVert = load - G - bias;
+    if (Math.abs(aVert) < 0.15) quietT += dt; else quietT = 0;
+    while (bi < bv.t.length - 2 && bv.t[bi] < t) bi++;
+    const vb = bv.v.length ? bv.v[bi] : 0;
+    if (dt > 1e-4) {
+      if (quietT >= 0.3) {
+        v = vb; I = vb; Il = vb; vbL = vb; // snap to ground truth, kill drift
+      } else {
+        I += aVert * dt;
+        Il += (I - Il) * Math.min(1, dt / TAU);
+        vbL += (vb - vbL) * Math.min(1, dt / TAU);
+        v = (I - Il) + vbL;
+      }
+    }
+    out.t.push(t); out.v.push(v); out.load.push(load / G);
+  }
+  return out;
+}
+function baroVelocity() {
+  // Centered difference with a light 5-sample box smoother (baro is noisy).
+  const t = D.baro_t, a = D.baro_alt, raw = { t: [], v: [] };
+  for (let i = 1; i < t.length - 1; i++) {
+    const dt = t[i + 1] - t[i - 1];
+    if (dt > 1e-4) { raw.t.push(t[i]); raw.v.push((a[i + 1] - a[i - 1]) / dt); }
+  }
+  const out = { t: raw.t, v: [] };
+  for (let i = 0; i < raw.v.length; i++) {
+    let s = 0, k = 0;
+    for (let j = Math.max(0, i - 2); j <= Math.min(raw.v.length - 1, i + 2); j++) { s += raw.v[j]; k++; }
+    out.v.push(s / k);
+  }
+  return out;
+}
+
+// ---- chart rendering ----
+function decimate(ts, vs, maxPts) {
+  const n = ts.length;
+  if (n <= maxPts) return { ts, vs };
+  const bucket = Math.max(1, Math.floor(n / (maxPts / 2)));
+  const ots = [], ovs = [];
+  for (let i = 0; i < n; i += bucket) {
+    const end = Math.min(n, i + bucket);
+    let imin = i, imax = i;
+    for (let j = i + 1; j < end; j++) {
+      if (vs[j] < vs[imin]) imin = j;
+      if (vs[j] > vs[imax]) imax = j;
+    }
+    if (imin === imax) { ots.push(ts[imin]); ovs.push(vs[imin]); }
+    else {
+      const a = Math.min(imin, imax), b = Math.max(imin, imax);
+      ots.push(ts[a]); ovs.push(vs[a]);
+      ots.push(ts[b]); ovs.push(vs[b]);
+    }
+  }
+  return { ts: ots, vs: ovs };
+}
+function niceTicks(min, max, count) {
+  if (!isFinite(min) || !isFinite(max) || max <= min) return [];
+  const span = max - min;
+  const step0 = span / count;
+  const mag = Math.pow(10, Math.floor(Math.log10(step0)));
+  const norm = step0 / mag;
+  const step = (norm < 1.5 ? 1 : norm < 3.5 ? 2 : norm < 7.5 ? 5 : 10) * mag;
+  const out = [];
+  for (let v = Math.ceil(min / step) * step; v <= max + step * 1e-6; v += step) out.push(v);
+  if (out.length > count * 3) return [];
+  return out;
+}
+function drawChart(canvas, seriesList, opts) {
+  const ctx = canvas.getContext('2d');
+  const dpr = window.devicePixelRatio || 1;
+  const W = canvas.clientWidth || 600, H = canvas.clientHeight || 240;
+  canvas.width = W * dpr; canvas.height = H * dpr; ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, W, H);
+  const L = 64, R = 14, T = 14, B = 28;
+  let tMin = Infinity, tMax = -Infinity, yMin = Infinity, yMax = -Infinity;
+  for (const s of seriesList) {
+    for (const i in s.ts) { if (!isFinite(s.vs[i])) continue; if (s.ts[i] < tMin) tMin = s.ts[i]; if (s.ts[i] > tMax) tMax = s.ts[i]; if (s.vs[i] < yMin) yMin = s.vs[i]; if (s.vs[i] > yMax) yMax = s.vs[i]; }
+  }
+  if (!isFinite(tMin)) { ctx.fillStyle = '#8b949e'; ctx.font = '13px sans-serif'; ctx.fillText('no data', L, H / 2); return; }
+  if (yMin === yMax) { yMin -= 1; yMax += 1; }
+  const ypad = (yMax - yMin) * 0.08 || 1;
+  yMin -= ypad; yMax += ypad;
+  if (tMin === tMax) { tMax = tMin + 1; }
+  const iw = W - L - R, ih = H - T - B;
+  const X = t => L + (t - tMin) / (tMax - tMin) * iw;
+  const Y = v => T + (yMax - v) / (yMax - yMin) * ih;
+
+  ctx.strokeStyle = '#21262d'; ctx.fillStyle = '#8b949e'; ctx.lineWidth = 1;
+  ctx.font = '10px sans-serif';
+  const yt = niceTicks(yMin, yMax, 6);
+  yt.forEach(v => { ctx.beginPath(); ctx.moveTo(L, Y(v)); ctx.lineTo(W - R, Y(v)); ctx.stroke(); ctx.fillText(formatNum(v), 4, Y(v) + 3); });
+  const xt = niceTicks(tMin, tMax, 6);
+  xt.forEach(v => { ctx.beginPath(); ctx.moveTo(X(v), T); ctx.lineTo(X(v), H - B); ctx.stroke(); ctx.fillText('' + Math.round(v) + 's', X(v) - 10, H - 10); });
+  ctx.strokeStyle = '#30363d';
+  ctx.strokeRect(L, T, iw, ih);
+
+  for (const s of seriesList) {
+    if (s.ts.length < 2) continue;
+    const d = decimate(s.ts, s.vs, 3000);
+    ctx.beginPath();
+    let started = false;
+    for (let i = 0; i < d.ts.length; i++) {
+      if (!isFinite(d.vs[i])) { started = false; continue; }
+      const x = X(d.ts[i]), y = Y(d.vs[i]);
+      if (!started) { ctx.moveTo(x, y); started = true; } else ctx.lineTo(x, y);
+    }
+    ctx.strokeStyle = s.color; ctx.lineWidth = 1.4;
+    if (s.dash) ctx.setLineDash([5, 4]); else ctx.setLineDash([]);
+    ctx.stroke();
+    ctx.setLineDash([]);
+  }
+  if (opts.title) { ctx.fillStyle = '#e6edf3'; ctx.font = 'bold 11px sans-serif'; ctx.fillText(opts.title, L, T - 4); }
+}
+function formatNum(v) { return v === Math.round(v) ? String(v) : v.toFixed(v >= 100 ? 0 : v >= 10 ? 1 : 2); }
+
+function drawTrack() {
+  const canvas = $('track-canvas');
+  const ctx = canvas.getContext('2d');
+  const dpr = window.devicePixelRatio || 1;
+  const W = canvas.clientWidth || 600, H = canvas.clientHeight || 260;
+  canvas.width = W * dpr; canvas.height = H * dpr; ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, W, H);
+  const n = D.gps_lat.length;
+  if (n < 2) { ctx.fillStyle = '#8b949e'; ctx.font = '13px sans-serif'; ctx.fillText(n ? 'single fix' : 'no GPS track recorded', 20, H / 2); return; }
+  let minLa = Infinity, maxLa = -Infinity, minLo = Infinity, maxLo = -Infinity;
+  for (let i = 0; i < n; i++) {
+    if (D.gps_lat[i] < minLa) minLa = D.gps_lat[i]; if (D.gps_lat[i] > maxLa) maxLa = D.gps_lat[i];
+    if (D.gps_lon[i] < minLo) minLo = D.gps_lon[i]; if (D.gps_lon[i] > maxLo) maxLo = D.gps_lon[i];
+  }
+  let spanLa = maxLa - minLa, spanLo = maxLo - minLo;
+  if (spanLa < 1e-6 && spanLo < 1e-6) { spanLa = 1e-4; spanLo = 1e-4; }
+  const L = 64, R = 16, T = 14, B = 30, iw = W - L - R, ih = H - T - B;
+  const X = lo => L + (lo - minLo) / spanLo * iw;
+  const Y = la => T + (maxLa - la) / spanLa * ih;
+  ctx.fillStyle = '#8b949e'; ctx.font = '10px sans-serif';
+  ctx.fillText(maxLa.toFixed(5) + '\u00B0', 4, T + 4);
+  ctx.fillText(minLa.toFixed(5) + '\u00B0', 4, T + ih - 2);
+  ctx.fillText(minLo.toFixed(5) + '\u00B0', L, H - 8);
+  ctx.fillText(maxLo.toFixed(5) + '\u00B0', W - R - 70, H - 8);
+  ctx.strokeStyle = '#30363d'; ctx.strokeRect(L, T, iw, ih);
+  const pts = [];
+  for (let i = 0; i < n; i++) pts.push([X(D.gps_lon[i]), Y(D.gps_lat[i])]);
+  const stride = Math.max(1, Math.floor(n / 3000));
+  const d = [];
+  for (let k = 0; k < n; k += stride) d.push(pts[k]);
+  if (d.length < 2) d.push(pts[n - 1]);
+  ctx.beginPath(); d.forEach((p, i) => i ? ctx.lineTo(p[0], p[1]) : ctx.moveTo(p[0], p[1]));
+  ctx.strokeStyle = '#f85149'; ctx.lineWidth = 1.6; ctx.stroke();
+  // markers: first (green), max baro alt time nearest (orange), last (red).
+  const mark = (x, y, c) => { ctx.beginPath(); ctx.arc(x, y, 5, 0, 7); ctx.fillStyle = c; ctx.fill(); ctx.strokeStyle = '#0d1117'; ctx.lineWidth = 1.5; ctx.stroke(); };
+  mark(pts[0][0], pts[0][1], '#3fb950');
+  mark(pts[n - 1][0], pts[n - 1][1], '#f85149');
+  let imax = 0;
+  if (D.baro_t.length) {
+    let best = Infinity;
+    for (let a = 0; a < D.baro_t.length; a++) {
+      if (D.baro_alt[a] < best) continue;
+      best = D.baro_alt[a];
+      let bd = Infinity;
+      for (let g = 0; g < D.gps_t.length; g++) { const dd = Math.abs(D.gps_t[g] - D.baro_t[a]); if (dd < bd) { bd = dd; imax = g; } }
+    }
+  }
+  mark(pts[imax][0], pts[imax][1], '#f0883e');
+  ctx.fillStyle = '#8b949e'; ctx.font = '10px sans-serif';
+  ctx.fillText('start', Math.max(6, pts[0][0] + 6), Math.max(12, pts[0][1] - 6));
+  ctx.fillText('max alt', Math.max(6, pts[imax][0] - 12), Math.max(12, pts[imax][1] - 8));
+  ctx.fillText('end', Math.max(6, pts[n - 1][0] + 6), Math.max(12, pts[n - 1][1] + 14));
+}
+
+// ---- summary ----
+function fmt(v, d) { return (isFinite(v) ? v.toFixed(d == null ? 2 : d) : '-'); }
+function argmax(arr) { let b = -Infinity, bi = -1; for (let i = 0; i < arr.length; i++) if (arr[i] > b) { b = arr[i]; bi = i; } return bi; }
+function buildStats(vel) {
+  const rows = [];
+  const tmax = Math.max.apply(null, [D.baro_t[D.baro_t.length - 1], D.accel_t[D.accel_t.length - 1], D.geiger_t[D.geiger_t.length - 1]].filter(v => isFinite(v)) || [-1]);
+  rows.push(['Duration', isFinite(tmax) && tmax >= 0 ? fmt(tmax, 1) + ' s' : '-']);
+  let ap = -1;
+  if (D.baro_alt.length) {
+    ap = argmax(D.baro_alt);
+    rows.push(['Max baro alt', fmt(D.baro_alt[ap], 1) + ' m @ ' + fmt(D.baro_t[ap], 1) + ' s']);
+  } else rows.push(['Max baro alt', '-']);
+  const mag = magArray(D.ax, D.ay, D.az);
+  if (mag.length) {
+    const am = argmax(mag);
+    rows.push(['Max |a|', fmt(mag[am] / G, 2) + ' g @ ' + fmt(D.accel_t[am], 1) + ' s']);
+  } else rows.push(['Max |a|', '-']);
+  if (vel.v.length) {
+    const vm = argmax(vel.v);
+    rows.push(['Max velocity', fmt(vel.v[vm], 1) + ' m/s @ ' + fmt(vel.t[vm], 1) + ' s']);
+  } else rows.push(['Max velocity', '-']);
+  rows.push(['Pad pressure', D.pad_hpa != null ? fmt(D.pad_hpa, 2) + ' hPa' : '-']);
+  if (D.cpm.length) rows.push(['Peak geiger', fmt(Math.max.apply(null, D.cpm), 1) + ' CPM']);
+  rows.push(['GPS fixes', String(D.gps_lat.length)]);
+  const states = D.states.filter(s => s.to === 'LANDED');
+  rows.push(['Landing', states.length ? 'YES' : (D.states.length ? 'not in log' : '-')]);
+  $('stats').innerHTML = rows.map(([k, v]) =>
+    `<div class="kv"><div class="k">${k}</div><div class="v">${v}</div></div>`).join('');
+}
+
+function renderStrip() {
+  const el = $('strip');
+  if (!D.states.length) { el.innerHTML = '<span style="font-size:11px;color:#8b949e;padding:6px">no state transitions recorded</span>'; return; }
+  const all = D.states;
+  const tEnd = Math.max.apply(null, [D.baro_t[D.baro_t.length-1], D.accel_t[D.accel_t.length-1]].filter(isFinite));
+  const span = Math.max(1, (isFinite(tEnd) ? tEnd : (all[all.length-1].t || 1)) - all[0].t);
+  let html = '';
+  for (let i = 0; i < all.length; i++) {
+    const s = all[i], end = i + 1 < all.length ? all[i+1].t : (isFinite(tEnd) ? tEnd : s.t + span);
+    const left = (s.t - all[0].t) / span * 100, w = (end - s.t) / span * 100;
+    html += `<i class="st-${s.to}" title="${s.from} -> ${s.to} ${s.reason||''} @ ${s.t.toFixed(1)}s" style="left:${left}%;width:${Math.max(0.5, w)}%"></i>`;
+  }
+  el.innerHTML = html;
+}
+
+function renderEvents() {
+  const rows = D.events.map(e => `<tr><td>${fmt(e.t, 1)} s</td><td>${e.text.replace(/</g, '&lt;')}</td></tr>`).join('');
+  $('events').innerHTML = D.events.length ? ('<tr><th>t (s)</th><th>event</th></tr>' + rows)
+    : '<tr><td class="missing">no events logged</td></tr>';
+}
+
+function render() {
+  const vel = derivedVelocity();
+  drawChart($('alt-canvas'), [
+    { label: 'baro', ts: D.baro_t, vs: D.baro_alt, color: '#58a6ff' },
+    { label: 'gps', ts: D.gps_t, vs: D.gps_alt, color: '#f0883e', dash: true },
+  ].filter(s => s.ts.length), { title: 'baro & GPS altitude (m) vs time' });
+  const mag = magArray(D.ax, D.ay, D.az).map(v => v / G);
+  const load = vel.load.length ? vel.load : [];
+  const accSeries = [{ ts: D.accel_t, vs: mag, color: '#d2a8ff' }];
+  if (load.length) accSeries.push({ ts: vel.t, vs: load, color: '#7ee787' });
+  accSeries.push({ ts: [D.accel_t[0] || 0, D.accel_t[D.accel_t.length - 1] || 1], vs: [1, 1], color: '#8b949e', dash: true });
+  drawChart($('acc-canvas'), accSeries.filter(s => s.ts.length || s.vs.length), { title: 'acceleration (g) vs time' });
+  const baroV = baroVelocity();
+  drawChart($('vel-canvas'), [
+    { label: 'int', ts: vel.t, vs: vel.v, color: '#f0883e' },
+    { label: 'baro', ts: baroV.t, vs: baroV.v, color: '#8b949e', dash: true },
+  ].filter(s => s.ts.length), { title: 'velocity (m/s) vs time' });
+  drawTrack();
+  buildStats(vel);
+  renderStrip();
+  renderEvents();
+}
+
+// ---- session plumbing ----
+function modeConfig() {
+  const p = new URLSearchParams(location.search);
+  const s = p.get('session');
+  if (s) return { mode: 'pi', name: s, base: '/data/' + encodeURIComponent(s) + '/' };
+  const m = location.pathname.match(/^\/flights\/([^/]+)\/?$/);
+  if (m) return { mode: 'gs', name: decodeURIComponent(m[1]), base: '/flights/' + m[1] + '/' };
+  return null;
+}
+const MODE = modeConfig();
+
+async function loadSession(cfg) {
+  resetD();
+  D.name = cfg.name;
+  $('session-name').textContent = cfg.name;
+  $('msg').textContent = '';
+  try {
+    if (cfg.mode === 'pi') {
+      const [baro, accel, gps, gei, ev] = await Promise.all([
+        fetchText(cfg.base + 'barometer.csv').catch(() => ''),
+        fetchText(cfg.base + 'accelerometer.csv').catch(() => ''),
+        fetchText(cfg.base + 'gps.csv').catch(() => ''),
+        fetchText(cfg.base + 'geiger.csv').catch(() => ''),
+        fetchText(cfg.base + 'events.log').catch(() => ''),
+      ]);
+      ingestBaro(toObjects(csvParse(baro)));
+      ingestAccel(toObjects(csvParse(accel)), false);
+      ingestGps(toObjects(csvParse(gps)));
+      ingestGeiger(toObjects(csvParse(gei)));
+      ingestEvents(ev);
+    } else {
+      const csv = await fetchText(cfg.base + 'telemetry.csv');
+      const rows = toObjects(csvParse(csv));
+      ingestBaro(rows);
+      ingestAccel(rows, true);
+      ingestGps(rows);
+      ingestGeiger(rows);
+      ingestStates(rows);
+      D.name = cfg.name;
+    }
+    render();
+  } catch (e) {
+    $('msg').textContent = 'Failed to load session data: ' + e.message;
+    const can = [['baro', D.baro_t], ['accel', D.accel_t], ['gps', D.gps_t]];
+    if (!can.some(c => c[1].length)) {
+      $('stats').innerHTML = '<div class="kv"><div class="v">No data</div></div>';
+    }
+  }
+}
+
+async function fillSessions() {
+  const sel = $('sessions');
+  const opt = document.createElement('option'); opt.value = ''; opt.textContent = 'choose a session\u2026';
+  sel.appendChild(opt);
+  let list = [];
+  try {
+    if (MODE.mode === 'pi') {
+      const j = await (await fetch('/api/data')).json();
+      list = (j.sessions || []).map(s => ({ name: s.name }));
+    } else {
+      const j = await (await fetch('/flights/list.json')).json();
+      list = (j.sessions || []).map(s => ({ name: s.name }));
+    }
+  } catch (e) { return; }
+  for (const s of list) {
+    const o = document.createElement('option'); o.value = s.name; o.textContent = s.name;
+    sel.appendChild(o);
+  }
+  sel.value = MODE.name;
+  sel.onchange = () => {
+    const base = MODE.mode === 'pi' ? '/flight?session=' : '/flights/';
+    location.href = base + encodeURIComponent(sel.value);
+  };
+}
+
+if (MODE) {
+  $('back').textContent = MODE.mode === 'pi' ? '\u2190 control page' : '\u2190 live map';
+  if (MODE.mode === 'gs') $('back').href = '/';
+  fillSessions();
+  loadSession(MODE);
+} else {
+  $('msg').textContent = 'no session requested (use ?session=<name> or /flights/<name>)';
+  $('stats').innerHTML = '<div class="kv"><div class="v">-</div></div>';
+}
+window.addEventListener('resize', () => { if (MODE) render(); });
+</script>
+</body>
+</html>

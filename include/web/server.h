@@ -34,6 +34,7 @@ public:
         std::function<std::string()> getArmCode;           // returns {"code":"1234"}
         std::function<std::string()> disarm;               // returns result JSON
         std::function<std::string()> recalibrate;          // returns result JSON
+        std::function<std::string()> beep;                 // buzzer test, returns result JSON
         std::function<std::string(const std::string &relativePath)> readDataFile; // empty = not found
         std::function<std::string()> listDataJson;
     };
