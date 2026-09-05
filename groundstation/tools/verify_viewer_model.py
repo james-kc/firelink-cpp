@@ -152,8 +152,9 @@ def ingest_events(text):
 
 
 def derived_velocity(t, ax, ay, az, b_t, b_alt):
-    """Mirror of the viewer's derivedVelocity(): bias-subtracted vertical
-    specific-force integral anchored to baro velocity during quiet stretches."""
+    """Mirror of derivedVelocity(): high-passed accel integral blended with
+    low-passed baro velocity (τ=6 s) plus a snap-to-baro anchor during
+    sustained quiet stretches."""
     if len(t) < 4:
         return [], []
     mag = [math.hypot(ax[i], ay[i], az[i]) for i in range(len(t))]
@@ -178,7 +179,9 @@ def derived_velocity(t, ax, ay, az, b_t, b_alt):
     for i in range(len(b_v)):
         lo, hi = max(0, i - 2), min(len(b_v) - 1, i + 2)
         bv.append(sum(b_v[lo:hi + 1]) / (hi - lo + 1))
-    v = 0.0; quiet_t = 0.0; bi = 0
+    tau = 6.0
+    I = Il = vbL = v = quiet_t = 0.0
+    bi = 0
     out = []
     for i in range(len(t)):
         load = ax[i] * ux + ay[i] * uy + az[i] * uz
@@ -188,14 +191,17 @@ def derived_velocity(t, ax, ay, az, b_t, b_alt):
             quiet_t += dt
         else:
             quiet_t = 0.0
+        while bi < len(b_rt) - 2 and b_rt[bi] < t[i]:
+            bi += 1
+        vb = bv[bi] if bv else 0.0
         if dt > 1e-4:
             if quiet_t >= 0.3:
-                while bi < len(b_rt) - 2 and b_rt[bi] < t[i]:
-                    bi += 1
-                vb = bv[bi] if bv else 0.0
-                v += (vb - v) * min(1.0, dt / 0.4)
+                v = I = Il = vbL = vb
             else:
-                v += a_vert * dt
+                I += a_vert * dt
+                Il += (I - Il) * min(1.0, dt / tau)
+                vbL += (vb - vbL) * min(1.0, dt / tau)
+                v = (I - Il) + vbL
         out.append(v)
     return t, out
 

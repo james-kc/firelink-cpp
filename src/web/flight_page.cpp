@@ -247,16 +247,15 @@ function magArray(ax, ay, az) {
 }
 const G = 9.80665;
 function derivedVelocity() {
-  // Vertical specific-force along the IMU gravity axis, bias-corrected,
-  // integrated to velocity. Pure integration of a slightly misestimated
-  // gravity axis accumulates drift, so:
-  //  - the axis is averaged over all quiet samples (|a| ~ 1 g) of the whole
-  //    session, and the quiet-period mean of (load - 1g) is subtracted as a
-  //    vertical bias (subtle tilt/offset leak);
-  //  - during sustained quiet stretches (longer than 0.3 s of |aVert| < 0.15,
-  //    i.e. sitting on the pad or after landing) the integral is anchored to
-  //    the barometer velocity (≈ 0 on the ground) with a 0.4 s time constant
-  //    instead of ramping. In flight the accel integral is used untouched.
+  // Vertical velocity from IMU + barometer as a complementary filter, so the
+  // pure-integration drift (a lightly mis-estimated gravity axis ramps the
+  // integral linearly over a session) never survives:
+  //   v = HPF(∫aVert dt, τ=6 s)  +  LPF(baro velocity, τ=6 s)
+  // The high-passed integral keeps launch/impact dynamics without any DC
+  // wander; the low-passed baro velocity carries the sustained component.
+  // The gravity axis and a vertical bias come from quiet samples (|a|~1 g),
+  // and during sustained quiet stretches (≥0.3 s: on the pad, after landing,
+  // smooth terminal descent) the estimate snaps to the baro velocity.
   const n = D.accel_t.length;
   const out = { t: [], v: [], load: [] };
   if (n < 4) return out;
@@ -276,21 +275,24 @@ function derivedVelocity() {
   }
   bias = bq ? bias / bq : 0;
   const bv = baroVelocity();
-  let v = 0, quietT = 0, bi = 0;
-  const pullTo = 0.4; // seconds, complementary-filter time constant when quiet
+  const TAU = 6.0; // complementary crossover (s)
+  let I = 0, Il = 0, vbL = 0, v = 0, quietT = 0, bi = 0;
   for (let i = 0; i < n; i++) {
     const t = D.accel_t[i];
     const load = D.ax[i] * ux + D.ay[i] * uy + D.az[i] * uz;
     const dt = i ? Math.max(0, t - D.accel_t[i - 1]) : 0;
     const aVert = load - G - bias;
     if (Math.abs(aVert) < 0.15) quietT += dt; else quietT = 0;
+    while (bi < bv.t.length - 2 && bv.t[bi] < t) bi++;
+    const vb = bv.v.length ? bv.v[bi] : 0;
     if (dt > 1e-4) {
       if (quietT >= 0.3) {
-        while (bi < bv.t.length - 2 && bv.t[bi] < t) bi++;
-        const vb = bv.v.length ? bv.v[bi] : 0;
-        v += (vb - v) * Math.min(1, dt / pullTo);
+        v = vb; I = vb; Il = vb; vbL = vb; // snap to ground truth, kill drift
       } else {
-        v += aVert * dt;
+        I += aVert * dt;
+        Il += (I - Il) * Math.min(1, dt / TAU);
+        vbL += (vb - vbL) * Math.min(1, dt / TAU);
+        v = (I - Il) + vbL;
       }
     }
     out.t.push(t); out.v.push(v); out.load.push(load / G);
