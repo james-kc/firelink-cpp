@@ -69,9 +69,12 @@ bool GPS::readLines() {
             std::string line = rx_buffer_;
             rx_buffer_.clear();
             if (!line.empty()) {
+                ++lines_;
+                last_line_ = line;
                 NmeaFix updated = fix_;
                 if (nmeaParseGga(line, updated) || nmeaParseRmc(line, updated)) {
                     fix_ = updated;
+                    ++sentences_;
                     parsed = true;
                 }
             }

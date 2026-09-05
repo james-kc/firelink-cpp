@@ -35,6 +35,8 @@ geiger.window_s=60
 # If no NMEA sentence arrives for this long, the fix is reported as lost
 # (web UI, telemetry and arming checks) instead of caching the last one.
 gps.stale_after_s=10
+# Print every raw NMEA line to stdout (diagnostics; noisy).
+gps.debug=false
 
 # ---- Barometer calibration -------------------------------------------------
 # Pad pressure is sampled that many times (1 s apart); samples further than

@@ -223,11 +223,22 @@ public:
 
         int stale_ms = std::max(1, cfg_.getInt("gps.stale_after_s", 10)) * 1000;
         uint64_t last_sentence_ms = steadyMs();
+        bool debug_raw = cfg_.getBool("gps.debug", false);
+        uint64_t debug_lines = 0;
 
         while (!stop.load()) {
             bool fresh = gps.poll();
             uint64_t now = steadyMs();
             if (fresh) last_sentence_ms = now;
+
+            // Diagnostics: expose sentence counts, and when gps.debug=true
+            // print each raw line so bus/sentence issues are visible.
+            gps_lines_total_ = gps.lines();
+            gps_sentences_total_ = gps.sentences();
+            if (debug_raw && gps.lines() != debug_lines) {
+                debug_lines = gps.lines();
+                std::cout << "GPS: " << gps.lastLine() << std::endl;
+            }
 
             const NmeaFix &f = gps.fix();
             bool fix = f.hasFix;
@@ -700,6 +711,8 @@ public:
            << "\"gps_ok\":" << (s.gps_ok ? "true" : "false") << ","
            << "\"gps_fix\":" << (s.gps_fix ? "true" : "false") << ","
            << "\"gps_age_ms\":" << gps_age_ms << ","
+           << "\"gps_lines\":" << gps_lines_total_.load() << ","
+           << "\"gps_sentences\":" << gps_sentences_total_.load() << ","
            << "\"gps_sats\":" << s.gps_sats << ","
            << "\"gps_lat\":" << s.gps_lat << ","
            << "\"gps_lon\":" << s.gps_lon << ","
@@ -855,6 +868,8 @@ private:
     std::mutex buzzer_mu_;
     bool buzzer_ok_ = false;
     bool had_gps_fix_ = false;
+    std::atomic<uint64_t> gps_lines_total_{0};
+    std::atomic<uint64_t> gps_sentences_total_{0};
     uint64_t boot_ms_ = 0;
 
     // CSV session files (guarded by csv_mu_).
