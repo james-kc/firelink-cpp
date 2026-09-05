@@ -45,9 +45,11 @@ int testCalib() {
     r = robustPadPressure(spiky, -1.0f, 300.0f, 1200.0f, 1013.25f);
     CHECK("no-reject mean", near(r, (1002.5f + 1002.4f + 1002.6f + 1006.9f + 1002.3f) / 5.0f));
 
-    // Everything outside the reject band -> fallback rather than a skewed mean.
-    r = robustPadPressure({1000.0f, 1005.0f}, 0.1f, 300.0f, 1200.0f, 1013.25f);
-    CHECK("all-outlier fallback", near(r, 1013.25f));
+    // A tight cluster wins over a stray value (median-anchored inlier mean);
+    // the median itself is always an inlier, so the fallback only fires when
+    // no sane samples survive the sanity filter (covered above).
+    r = robustPadPressure({1004.0f, 1004.1f, 1010.0f}, 0.5f, 300.0f, 1200.0f, 1013.25f);
+    CHECK("cluster wins", near(r, 1004.05f, 0.01f));
 
     return g_failures;
 }
