@@ -248,6 +248,18 @@ public:
             state_.setGps(fix, quality, sats, lat, lon, alt, spd,
                           fresh ? now : (fix ? now : last_sentence_ms));
 
+            if (fix && !had_gps_fix_) {
+                had_gps_fix_ = true;
+                std::ostringstream ev;
+                ev << "GPS fix acquired (" << sats << " sats, quality " << quality << ")";
+                logEvent(ev.str());
+                std::cout << ev.str() << std::endl;
+            } else if (!fix && had_gps_fix_) {
+                had_gps_fix_ = false;
+                logEvent("GPS fix lost");
+                std::cout << "GPS fix lost" << std::endl;
+            }
+
             {
                 Snapshot rs = state_.get();
                 if (rs.recording) {
@@ -842,6 +854,7 @@ private:
     BuzzerPWM buzzer_;
     std::mutex buzzer_mu_;
     bool buzzer_ok_ = false;
+    bool had_gps_fix_ = false;
     uint64_t boot_ms_ = 0;
 
     // CSV session files (guarded by csv_mu_).
@@ -975,6 +988,15 @@ private:
         csv_geiger_ << "timestamp,window_counts,cpm\n";
 
         events_.open(session_path_ + "/events.log", std::ios::app);
+        // If a fix is already held when the session starts, say so up front so
+        // the events timeline is never missing the GPS state at arm time.
+        Snapshot snap = state_.get();
+        if (snap.gps_fix) {
+            events_ << utcTimestampMs() << " GPS fix active ("
+                    << snap.gps_sats << " sats)\n";
+            std::cout << "GPS fix active at session start: "
+                      << snap.gps_sats << " sats" << std::endl;
+        }
         state_.setRecording(true, session_path_);
     }
 
