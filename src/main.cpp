@@ -691,6 +691,7 @@ public:
            << "\"accel_mag\":" << s.accel_mag << ","
            << "\"geiger_ok\":" << (s.geiger_ok ? "true" : "false") << ","
            << "\"geiger_cpm\":" << s.geiger_cpm << ","
+           << "\"buzzer_ok\":" << (buzzer_ok_ ? "true" : "false") << ","
            << "\"recording\":" << (s.recording ? "true" : "false") << ","
            << "\"session_dir\":\"" << jsonEscape(s.session_dir) << "\","
            << "\"disk_free_mb\":" << diskFreeMb(cfg_.getString("data_dir", "data")) << ","

@@ -148,7 +148,7 @@ function resetD() {
   for (const k in D) D[k] = Array.isArray(D[k]) ? [] : D[k];
   D.name = ''; D.t0 = NaN; D.pad_hpa = null;
 }
-function pushNum(arr, arrT, t, v) { if (isFinite(t) && isFinite(v)) { arr.push(v); arrT.push(t); } }
+function pushNum(arr, arrT, t, v) { if (isFinite(t) && isFinite(v)) { arr.push(v); arrT.push(anchor(t)); } }
 function anchor(t) { if (isFinite(t) && !isFinite(D.t0) || isFinite(t) && t < D.t0) D.t0 = isFinite(D.t0) ? Math.min(D.t0, t) : t; return isFinite(D.t0) ? t - D.t0 : NaN; }
 function rel(epoch) { return isFinite(epoch) && isFinite(D.t0) ? epoch - D.t0 : NaN; }
 
