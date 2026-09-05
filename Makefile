@@ -13,7 +13,7 @@ TARGET := firelink
 LIBS := -lm -lgpiod -lpthread
 
 # Platform-independent sources that also build on macOS/Linux for host tests.
-HOST_SRC := src/config.cpp src/state.cpp src/sensors/nmea.cpp src/telemetry/packet.cpp
+HOST_SRC := src/config.cpp src/state.cpp src/sensors/nmea.cpp src/telemetry/packet.cpp src/calib.cpp
 TEST_SRC := $(wildcard tests/*.cpp)
 TEST_BIN := tests/run_tests
 

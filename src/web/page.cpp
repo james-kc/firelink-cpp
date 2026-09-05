@@ -90,6 +90,14 @@ const $ = id => document.getElementById(id);
 
 function fmt(x, digits=5) { return (typeof x === 'number') ? x.toFixed(digits) : x; }
 
+function gpsLabel(s) {
+  if (!s.gps_ok) return 'offline';
+  if (s.gps_fix) return 'FIX (' + s.gps_sats + ' sats)';
+  const ageS = (s.gps_age_ms || 0) / 1000;
+  if (ageS >= 3) return 'no fix (lost ' + Math.floor(ageS) + 's ago)';
+  return 'no fix';
+}
+
 async function poll() {
   try {
     const s = await (await fetch('/api/status')).json();
@@ -100,8 +108,7 @@ async function poll() {
     $('armgate').style.display = (s.state === 'PREFLIGHT') ? '' : 'none';
 
     const rows = [
-      ['GPS', s.gps_ok ? (s.gps_fix ? 'FIX (' + s.gps_sats + ' sats)' : 'no fix') : 'offline',
-        s.gps_fix ? 'ok' : 'bad'],
+      ['GPS', gpsLabel(s), s.gps_fix ? 'ok' : 'bad'],
       ['Latitude', fmt(s.gps_lat, 6)], ['Longitude', fmt(s.gps_lon, 6)],
       ['GPS alt', fmt(s.gps_alt_m, 1) + ' m'], ['Speed', fmt(s.gps_speed_kmh, 1) + ' km/h'],
       ['Baro alt (rel)', fmt(s.baro_alt_rel_m, 1) + ' m'],
@@ -214,10 +221,16 @@ loadConfig();
 
 async function loadFiles() {
   const j = await (await fetch('/api/data')).json();
-  $('files').innerHTML = j.files.length
-    ? '<table>' + j.files.map(f =>
-        `<tr><td><a href="/data/${f.path}">${f.path}</a></td>
-         <td>${(f.size / 1024).toFixed(1)} KB</td></tr>`).join('') + '</table>'
+  const sessions = j.sessions || [];
+  $('files').innerHTML = sessions.length
+    ? '<table>' + sessions.map(s => {
+        const files = (s.files || []).map(f =>
+          `<a href="/data/${f.path}">${f.path.split('/')[1]}</a>`).join(' ');
+        return `<tr><td class="mono">${s.name}</td>
+          <td><a href="flight?session=${encodeURIComponent(s.name)}">VIEW FLIGHT</a></td>
+          <td>${(s.total_bytes / 1024).toFixed(0)} KB</td>
+          <td style="font-size:0.75rem;color:#8b949e">${files}</td></tr>`;
+      }).join('') + '</table>'
     : 'No recordings yet.';
 }
 $('refresh-files').onclick = loadFiles;

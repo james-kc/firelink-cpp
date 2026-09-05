@@ -63,9 +63,8 @@ bool GPS::readLines() {
     if (fd_ < 0) return false;
 
     char c;
-    bool any = false;
+    bool parsed = false;
     while (read(fd_, &c, 1) == 1) {
-        any = true;
         if (c == '\n') {
             std::string line = rx_buffer_;
             rx_buffer_.clear();
@@ -73,13 +72,14 @@ bool GPS::readLines() {
                 NmeaFix updated = fix_;
                 if (nmeaParseGga(line, updated) || nmeaParseRmc(line, updated)) {
                     fix_ = updated;
+                    parsed = true;
                 }
             }
         } else if (c != '\r') {
             rx_buffer_ += c;
         }
     }
-    return any || true; // read() returning 0 simply means nothing new this poll
+    return parsed; // false = no complete sentence arrived this poll
 }
 
 bool GPS::poll() {

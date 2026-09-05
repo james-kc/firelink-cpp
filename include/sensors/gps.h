@@ -19,7 +19,9 @@ public:
     bool begin(int update_hz = 1);
 
     // Reads available bytes, parses any completed sentences, and refreshes
-    // the internal fix state. Returns false only on hard I/O errors.
+    // the internal fix state. Returns true if at least one complete sentence
+    // was parsed since the last call, false otherwise (so the caller can
+    // detect a gone-silent module/bus instead of caching a stale fix).
     bool poll();
 
     const NmeaFix &fix() const { return fix_; }

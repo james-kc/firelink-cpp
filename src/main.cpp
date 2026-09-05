@@ -14,6 +14,7 @@
 
 #include "config.h"
 #include "state.h"
+#include "calib.h"
 #include "sensors/gps.h"
 #include "sensors/imu.h"
 #include "sensors/bme280.h"
@@ -34,6 +35,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <memory>
 #include <mutex>
 #include <random>
 #include <sstream>
@@ -206,12 +208,32 @@ public:
         state_.setGpsOk(true);
         std::cout << "GPS thread running" << std::endl;
 
+        int stale_ms = std::max(1, cfg_.getInt("gps.stale_after_s", 10)) * 1000;
+        uint64_t last_sentence_ms = steadyMs();
+
         while (!stop.load()) {
-            gps.poll();
+            bool fresh = gps.poll();
+            uint64_t now = steadyMs();
+            if (fresh) last_sentence_ms = now;
+
             const NmeaFix &f = gps.fix();
-            state_.setGps(f.hasFix, f.fixQuality, f.satellites, f.latitude,
-                          f.longitude, (float)f.altitude_m,
-                          (float)f.speed_kmh, steadyMs());
+            bool fix = f.hasFix;
+            int quality = f.fixQuality;
+            int sats = f.satellites;
+            double lat = f.latitude, lon = f.longitude;
+            float alt = (float)f.altitude_m, spd = (float)f.speed_kmh;
+
+            if (!fresh && now - last_sentence_ms > (uint64_t)stale_ms) {
+                // The module/bus went quiet: stop re-reporting the cached
+                // fix. gps_updated_ms is pinned to the last real sentence so
+                // the web UI can show how long ago the fix was lost.
+                fix = false;
+                quality = 0;
+                sats = 0;
+            }
+
+            state_.setGps(fix, quality, sats, lat, lon, alt, spd,
+                          fresh ? now : (fix ? now : last_sentence_ms));
 
             {
                 Snapshot rs = state_.get();
@@ -309,23 +331,37 @@ public:
     }
 
     void envThread(std::atomic<bool> &stop) {
-        BME280 bme(cfg_.getString("i2c.bus", "/dev/i2c-1"),
-                   (uint8_t)cfg_.getInt("i2c.addr.bme280", 0x76));
-        if (!bme.begin()) {
+        auto bme = std::make_unique<BME280>(cfg_.getString("i2c.bus", "/dev/i2c-1"),
+                                            (uint8_t)cfg_.getInt("i2c.addr.bme280", 0x76));
+        if (!bme->begin()) {
             state_.setEnvOk(false);
             return;
         }
+        {
+            std::lock_guard<std::mutex> lk(bme_mu_);
+            bme_ = std::move(bme);
+        }
         state_.setEnvOk(true);
 
-        // Initial pad pressure (10 s). Recalibrate on the pad via the web UI.
-        state_.setPadPressure(quickPadPressure(bme, 10));
+        // Initial pad pressure (a few samples). Recalibrate later from the
+        // web UI; every BME280 read is serialised through bme_mu_ so the two
+        // never interleave I2C register reads (which used to corrupt the ADC
+        // values and skew `relative_altitude` by hundreds of metres).
+        {
+            std::lock_guard<std::mutex> lk(bme_mu_);
+            state_.setPadPressure(samplePadPressure(*bme_));
+        }
         std::cout << "Environment thread running" << std::endl;
 
         int period_ms = 1000 / std::max(1, cfg_.getInt("rate.bme_hz", 10));
         while (!stop.load()) {
-            float pressure = bme.readPressure();
-            float temp = bme.readTemperature();
-            float hum = bme.readHumidity();
+            float pressure, temp, hum;
+            {
+                std::lock_guard<std::mutex> lk(bme_mu_);
+                pressure = bme_->readPressure();
+                temp = bme_->readTemperature();
+                hum = bme_->readHumidity();
+            }
             float pad = state_.get().pad_pressure_hpa;
             float alt_rel = 44330.0f * (1.0f - std::pow(pressure / pad, 0.1903f));
             state_.setEnv(pressure, alt_rel, temp, hum, steadyMs());
@@ -507,11 +543,10 @@ public:
 
         openSession();
         state_.setArmTime(steadyMs());
-        state_.setState(FlightState::ARMED);
+        transitionTo(FlightState::ARMED, force ? "forced" : "");
         launch_detected_.store(false);
         launch_streak_ = 0;
         land_history_.clear();
-        logEvent("ARMED" + std::string(force ? " (forced)" : ""));
         sendStatus("ARMED");
         beepAsync(250);
         std::cout << "Flight computer ARMED" << (force ? " (forced)" : "") << std::endl;
@@ -525,7 +560,7 @@ public:
 
         closeSession();
         state_.setArmTime(0);
-        state_.setState(FlightState::PREFLIGHT);
+        transitionTo(FlightState::PREFLIGHT, "disarm");
         launch_detected_.store(false);
         launch_streak_ = 0;
         land_history_.clear();
@@ -610,8 +645,7 @@ public:
         }
 
         if (quiet && (alt_max - alt_min) < alt_tol) {
-            state_.setState(FlightState::LANDED);
-            logEvent("LANDED detected");
+            transitionTo(FlightState::LANDED, "quiet window");
             sendStatus("LANDED");
             landedMelodyAsync();
             std::cout << "Landing detected -> low-rate beacon mode" << std::endl;
@@ -630,13 +664,17 @@ public:
 
     std::string statusJson() {
         Snapshot s = state_.get();
+        uint64_t now_ms = steadyMs();
+        uint64_t gps_age_ms = (s.gps_updated_ms && now_ms >= s.gps_updated_ms)
+                              ? now_ms - s.gps_updated_ms : 0;
         std::ostringstream os;
         os << std::fixed;
         os.precision(6);
         os << "{\"state\":\"" << flightStateName(s.state) << "\","
-           << "\"uptime_s\":" << (steadyMs() - boot_ms_) / 1000 << ","
+           << "\"uptime_s\":" << (now_ms - boot_ms_) / 1000 << ","
            << "\"gps_ok\":" << (s.gps_ok ? "true" : "false") << ","
            << "\"gps_fix\":" << (s.gps_fix ? "true" : "false") << ","
+           << "\"gps_age_ms\":" << gps_age_ms << ","
            << "\"gps_sats\":" << s.gps_sats << ","
            << "\"gps_lat\":" << s.gps_lat << ","
            << "\"gps_lon\":" << s.gps_lon << ","
@@ -674,20 +712,35 @@ public:
     std::string listDataJson() {
         std::string base = cfg_.getString("data_dir", "data");
         std::ostringstream os;
-        os << "{\"files\":[";
-        bool first = true;
+        os << "{\"sessions\":[";
+        bool first_session = true;
         std::error_code ec;
+        std::vector<std::string> sessions;
         for (auto &sess : fs::directory_iterator(base, ec)) {
             if (!sess.is_directory()) continue;
-            for (auto &f : fs::directory_iterator(sess.path(), ec)) {
+            sessions.push_back(sess.path().filename().string());
+        }
+        std::sort(sessions.begin(), sessions.end(), std::greater<std::string>());
+        for (const std::string &name : sessions) {
+            std::vector<std::pair<std::string, uint64_t>> files;
+            std::string selfiles;
+            for (auto &f : fs::directory_iterator(fs::path(base) / name, ec)) {
                 if (!f.is_regular_file()) continue;
-                if (!first) os << ',';
-                first = false;
-                os << "{\"path\":\"" << jsonEscape(
-                          sess.path().filename().string() + "/" +
-                          f.path().filename().string())
-                   << "\",\"size\":" << (uint64_t)f.file_size(ec) << "}";
+                files.emplace_back(f.path().filename().string(),
+                                   (uint64_t)f.file_size(ec));
             }
+            std::sort(files.begin(), files.end());
+            if (!first_session) os << ',';
+            first_session = false;
+            os << "{\"name\":\"" << jsonEscape(name) << "\",\"files\":[";
+            uint64_t total = 0;
+            for (size_t i = 0; i < files.size(); ++i) {
+                if (i) os << ',';
+                os << "{\"path\":\"" << jsonEscape(name + "/" + files[i].first)
+                   << "\",\"size\":" << files[i].second << "}";
+                total += files[i].second;
+            }
+            os << "],\"total_bytes\":" << total << "}";
         }
         os << "]}";
         return os.str();
@@ -695,12 +748,12 @@ public:
 
     std::string recalibrate() {
         // Runs in the HTTP handler thread; takes a few seconds (fine on the
-        // pad, and the response carries the fresh pad pressure).
-        BME280 bme(cfg_.getString("i2c.bus", "/dev/i2c-1"),
-                   (uint8_t)cfg_.getInt("i2c.addr.bme280", 0x76));
-        if (!bme.begin())
-            return "{\"ok\":false,\"error\":\"bme280 unavailable\"}";
-        float pad = quickPadPressure(bme, 10);
+        // pad, and the response carries the fresh pad pressure). All BME280
+        // access shares the environment thread's sensor under bme_mu_, so
+        // the two never interleave I2C register reads.
+        std::lock_guard<std::mutex> lk(bme_mu_);
+        if (!bme_) return "{\"ok\":false,\"error\":\"bme280 unavailable\"}";
+        float pad = samplePadPressure(*bme_);
         state_.setPadPressure(pad);
         std::ostringstream os;
         os << "{\"ok\":true,\"pad_pressure_hpa\":" << pad << "}";
@@ -779,6 +832,14 @@ private:
     std::string session_path_;
     int imu_rows_since_flush_ = 0;
 
+    // BME280 ownership: the environment thread owns the sensor (unique_ptr)
+    // and every I2C read - including out-of-band recalibration from the web
+    // handler thread - is serialised through bme_mu_. A second handle racing
+    // the env loop used to interleave multi-byte register reads and corrupt
+    // the pressure ADC, blowing the pad reference off by hundreds of metres.
+    std::mutex bme_mu_;
+    std::unique_ptr<BME280> bme_;
+
     // Status text queued for the LoRa downlink.
     std::mutex status_mu_;
     std::string pending_status_;
@@ -825,15 +886,27 @@ private:
                                        : PreSelectRecorder::Mode::PAD;
     }
 
-    float quickPadPressure(BME280 &bme, int samples) {
-        float sum = 0.0f;
-        int got = 0;
+    // Samples the pad pressure robustly (median + outlier rejection) and
+    // records it to events.log. Caller must hold bme_mu_; samples are spaced
+    // ~1 s apart so this takes bme.calibrate_samples seconds.
+    float samplePadPressure(BME280 &bme) {
+        int samples = std::max(1, cfg_.getInt("bme.calibrate_samples", 12));
+        float reject = cfg_.getFloat("bme.recalibrate_reject_delta_hpa", 0.5f);
+        std::vector<float> vals;
+        vals.reserve((size_t)samples);
         for (int i = 0; i < samples; ++i) {
             float p = bme.readPressure();
-            if (p > 300.0f && p < 1200.0f) { sum += p; ++got; }
+            if (p > 300.0f && p < 1200.0f) vals.push_back(p);
             std::this_thread::sleep_for(std::chrono::seconds(1));
         }
-        return got ? sum / got : 1013.25f;
+        float pad = robustPadPressure(vals, reject, 300.0f, 1200.0f, 1013.25f);
+        std::ostringstream ev;
+        ev << "PAD pressure recalibrated to " << pad << " hPa from "
+           << vals.size() << " samples";
+        logEvent(ev.str());
+        std::cout << "Pad pressure: " << pad << " hPa from "
+                  << vals.size() << " samples" << std::endl;
+        return pad;
     }
 
     void openSession() {
@@ -910,6 +983,23 @@ private:
         // on the next telemetry slot.
         std::lock_guard<std::mutex> lk(status_mu_);
         pending_status_ = text;
+    }
+
+    // Single choke point for flight-state changes: records a uniform
+    // "state: FROM -> TO (reason)" line in events.log so the log is an
+    // authoritative state timeline (ARMED/LAUNCHED/LANDED/DISARMED all
+    // present, including manual disarm which previously only wrote
+    // "session closed"). Callers still sendStatus() the human-facing text.
+    void transitionTo(FlightState next, const std::string &reason) {
+        Snapshot snap = state_.get();
+        FlightState prev = snap.state;
+        state_.setState(next);
+        std::ostringstream ev;
+        ev << "state: " << flightStateName(prev) << " -> "
+           << flightStateName(next)
+           << (reason.empty() ? "" : " (" + reason + ")");
+        logEvent(ev.str());
+        std::cout << ev.str() << std::endl;
     }
 };
 

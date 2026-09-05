@@ -58,8 +58,10 @@ def main(argv=None):
     receiver.start()
 
     if args.web:
-        run_web(store, port=args.web_port)
+        log_root = os.path.dirname(log_dir.rstrip(os.sep)) or "gs_logs"
+        run_web(store, port=args.web_port, log_root=log_root)
         print(f"Web map: http://127.0.0.1:{args.web_port}")
+        print(f"Flights: http://127.0.0.1:{args.web_port}/flights")
 
     try:
         if args.no_tui:

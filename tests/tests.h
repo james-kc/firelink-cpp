@@ -7,5 +7,6 @@
 int testPacket(const char *golden_path);
 int testNmea();
 int testConfig();
+int testCalib();
 
 #endif

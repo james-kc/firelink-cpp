@@ -17,6 +17,7 @@ int main(int argc, char **argv) {
     failures += testPacket(golden_path);
     failures += testNmea();
     failures += testConfig();
+    failures += testCalib();
 
     std::printf("\n%s\n", failures == 0 ? "ALL PASS" : "FAILURES PRESENT");
     return failures == 0 ? 0 : 1;

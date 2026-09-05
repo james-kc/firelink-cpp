@@ -11,6 +11,9 @@
 
 // The control page lives in page.cpp as a raw string literal.
 extern const char *kFirelinkPage;
+// The post-flight data viewer (self-contained canvas charts) lives in
+// flight_page.cpp, served at /flight?session=<name>.
+extern const char *kFirelinkFlightPage;
 
 namespace {
 
@@ -189,6 +192,8 @@ void WebServer::handleConnection(int client_fd) {
 
     if (method == "GET" && (path == "/" || path == "/index.html")) {
         sendResponse(client_fd, 200, "text/html", kFirelinkPage);
+    } else if (method == "GET" && path == "/flight") {
+        sendResponse(client_fd, 200, "text/html", kFirelinkFlightPage);
     } else if (method == "GET" && path == "/api/status") {
         json(handlers_.getStatusJson ? handlers_.getStatusJson() : "{}");
     } else if (method == "GET" && path == "/api/config") {
