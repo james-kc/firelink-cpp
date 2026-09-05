@@ -151,24 +151,53 @@ def ingest_events(text):
     return events, states, pad
 
 
-def derived_velocity(t, ax, ay, az):
+def derived_velocity(t, ax, ay, az, b_t, b_alt):
+    """Mirror of the viewer's derivedVelocity(): bias-subtracted vertical
+    specific-force integral anchored to baro velocity during quiet stretches."""
     if len(t) < 4:
         return [], []
-    n = min(50, len(t))
-    sx = sum(ax[:n]); sy = sum(ay[:n]); sz = sum(az[:n])
-    mm = math.hypot(sx, sy, sz) / n or G
-    ux, uy, uz = sx / (mm * n), sy / (mm * n), sz / (mm * n)
-    vt, out, load = [], [], []
-    v = 0.0
+    mag = [math.hypot(ax[i], ay[i], az[i]) for i in range(len(t))]
+    sx = sy = sz = sq = 0.0
     for i in range(len(t)):
-        loadv = ax[i] * ux + ay[i] * uy + az[i] * uz
-        a_vert = loadv - G
-        if i > 0:
-            dt = t[i] - t[i - 1]
-            if dt > 1e-4:
+        if abs(mag[i] - G) < 0.15:
+            sx += ax[i]; sy += ay[i]; sz += az[i]; sq += 1
+    mm = math.hypot(sx, sy, sz) / (sq or 1) or G
+    ux = sx / (mm * sq or 1); uy = sy / (mm * sq or 1); uz = sz / (mm * sq or 1)
+    bias = bq = 0.0
+    for i in range(len(t)):
+        if abs(mag[i] - G) < 0.15:
+            bias += ax[i] * ux + ay[i] * uy + az[i] * uz - G
+            bq += 1
+    bias = bias / bq if bq else 0.0
+    b_rt, b_v = [], []
+    for i in range(1, len(b_t) - 1):
+        dt = b_t[i + 1] - b_t[i - 1]
+        if dt > 1e-4:
+            b_rt.append(b_t[i]); b_v.append((b_alt[i + 1] - b_alt[i - 1]) / dt)
+    bv = []
+    for i in range(len(b_v)):
+        lo, hi = max(0, i - 2), min(len(b_v) - 1, i + 2)
+        bv.append(sum(b_v[lo:hi + 1]) / (hi - lo + 1))
+    v = 0.0; quiet_t = 0.0; bi = 0
+    out = []
+    for i in range(len(t)):
+        load = ax[i] * ux + ay[i] * uy + az[i] * uz
+        dt = max(0.0, t[i] - t[i - 1]) if i else 0.0
+        a_vert = load - G - bias
+        if abs(a_vert) < 0.15:
+            quiet_t += dt
+        else:
+            quiet_t = 0.0
+        if dt > 1e-4:
+            if quiet_t >= 0.3:
+                while bi < len(b_rt) - 2 and b_rt[bi] < t[i]:
+                    bi += 1
+                vb = bv[bi] if bv else 0.0
+                v += (vb - v) * min(1.0, dt / 0.4)
+            else:
                 v += a_vert * dt
-        vt.append(t[i]); out.append(v); load.append(loadv / G)
-    return vt, out
+        out.append(v)
+    return t, out
 
 
 def summary(label, d):
@@ -196,7 +225,7 @@ def main():
     tg, la, lo, ga, sa = ingest_gps(gps)
     tge, cpm = ingest_geiger(gei)
     events, states, pad = ingest_events(ev)
-    vt, vel = derived_velocity(ta, ax, ay, az)
+    vt, vel = derived_velocity(ta, ax, ay, az, tb, alt)
     summary("PI session (20260904T010051)", {
         "baro rows": len(baro), "baro alt pts": len(alt),
         "accel rows": len(accel), "accel pts": len(ta),
@@ -210,6 +239,12 @@ def main():
     assert len(tb) == len(baro) and len(alt) == len(baro), "baro empty (field/time mismatch?)"
     assert ta, "accel empty"
     assert len(events) >= 3, "events not parsed"
+    # Pure integration of a lightly-misestimated gravity axis drifts (the old
+    # estimator hit ~76 m/s on a stationary pad). The anchored estimator must
+    # stay small: max |v| bounded and ~0 after landing.
+    assert abs(max(vel)) < 30 and abs(min(vel)) < 30, \
+        f"derived velocity drifts: max={max(vel):.1f} min={min(vel):.1f} m/s"
+    assert abs(vel[-1] if vel else 0) < 8, "velocity not re-anchored to ~0 after the session"
     # If a session captured GPS fixes, they must not be silently dropped:
     # Pi gps.csv's wall clock lives in thread_datetime (datetime is the raw
     # NMEA HHMMSS), so an empty track means the timestamp field drifted.
