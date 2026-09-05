@@ -62,12 +62,21 @@ void GPS::sendCommand(const std::string &cmd) {
 bool GPS::readLines() {
     if (fd_ < 0) return false;
 
-    char c;
+    // The PA1010D I2C interface streams NMEA as a rolling window: a read
+    // transaction returns up to the requested number of bytes of the current
+    // view (unused slots are 0x0A padding). Reading a single byte per
+    // transaction samples a rotating slice and never yields a complete
+    // sentence, so grab a chunk and buffer across polls instead.
+    char buf[160];
+    const ssize_t n = read(fd_, buf, sizeof buf);
+    if (n > 0) rx_buffer_.append(buf, n);
+
     bool parsed = false;
-    while (read(fd_, &c, 1) == 1) {
-        if (c == '\n') {
-            std::string line = rx_buffer_;
-            rx_buffer_.clear();
+    size_t start = 0;
+    for (size_t i = 0; i < rx_buffer_.size(); ++i) {
+        if (rx_buffer_[i] == '\n') {
+            std::string line = rx_buffer_.substr(start, i - start);
+            if (!line.empty() && line.back() == '\r') line.pop_back();
             if (!line.empty()) {
                 ++lines_;
                 last_line_ = line;
@@ -78,11 +87,11 @@ bool GPS::readLines() {
                     parsed = true;
                 }
             }
-        } else if (c != '\r') {
-            rx_buffer_ += c;
+            start = i + 1;
         }
     }
-    return parsed; // false = no complete sentence arrived this poll
+    if (start > 0) rx_buffer_.erase(0, start);
+    return parsed; // false = no complete sentence parsed this poll
 }
 
 bool GPS::poll() {
