@@ -85,7 +85,8 @@ def ingest_accel(rows, g_mode):
 def ingest_gps(rows):
     t, lat, lon, alt, sats = [], [], [], [], []
     for r in rows:
-        e = parse_time(r.get("datetime") or r.get("rx_time") or r.get("timestamp"))
+        e = parse_time(r.get("thread_datetime") or r.get("datetime")
+                       or r.get("rx_time") or r.get("timestamp"))
         if not math.isfinite(e):
             continue
         la = num(r.get("latitude", r.get("lat")))
@@ -209,6 +210,11 @@ def main():
     assert len(tb) == len(baro) and len(alt) == len(baro), "baro empty (field/time mismatch?)"
     assert ta, "accel empty"
     assert len(events) >= 3, "events not parsed"
+    # If a session captured GPS fixes, they must not be silently dropped:
+    # Pi gps.csv's wall clock lives in thread_datetime (datetime is the raw
+    # NMEA HHMMSS), so an empty track means the timestamp field drifted.
+    if len(gps) > 1:
+        assert tg, "gps.csv has rows but 0 points ingested (timestamp field mismatch?)"
     print("  state lines seen:", [f"{a}->{b}" for _, a, b, _ in states])
     print("  first baro alt:", alt[0], " max baro alt:", max(alt))
     print("  pad pressure from events:", pad)

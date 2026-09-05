@@ -176,7 +176,7 @@ function ingestAccel(rows, gMode) {
 }
 function ingestGps(rows) {
   for (const r of rows) {
-    const e = parseTime(r.datetime || r.rx_time || r.timestamp);
+    const e = parseTime(r.thread_datetime || r.datetime || r.rx_time || r.timestamp);
     if (!isFinite(e)) continue;
     let lat = num(r.latitude ?? r.lat), lon = num(r.longitude ?? r.lon);
     if (!isFinite(lat) || !isFinite(lon)) continue;
