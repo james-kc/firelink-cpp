@@ -178,8 +178,8 @@ function ingestGps(rows) {
   for (const r of rows) {
     const e = parseTime(r.datetime || r.rx_time || r.timestamp);
     if (!isFinite(e)) continue;
-    let lat = num(r.latitude), lon = num(r.longitude);
-    if (!isFinite(lat) && !isFinite(r.latitude)) continue;
+    let lat = num(r.latitude ?? r.lat), lon = num(r.longitude ?? r.lon);
+    if (!isFinite(lat) || !isFinite(lon)) continue;
     const sats = num(r.satellites ?? r.sats ?? 0);
     const fix = (r.fix != null) ? (num(r.fix) > 0) : (sats > 0);
     if (!fix || Math.abs(lat) > 90 || Math.abs(lon) > 180) continue;
