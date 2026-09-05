@@ -41,6 +41,7 @@
 #include <sstream>
 #include <string>
 #include <thread>
+#include <unistd.h>
 #include <vector>
 #include <sys/statvfs.h>
 
@@ -192,6 +193,18 @@ public:
             while (state_.get().state == FlightState::LANDED) {
                 for (int f = 600; f <= 1400; f += 50) buzzer_.tone(f, 20);
                 for (int f = 1400; f >= 600; f -= 50) buzzer_.tone(f, 20);
+            }
+        }).detach();
+    }
+
+    // Distinct 3-beep pattern for the web "Test buzzer" button / /api/beep.
+    void testBuzzerAsync() {
+        std::thread([this] {
+            std::lock_guard<std::mutex> lk(buzzer_mu_);
+            if (!buzzer_ok_) return;
+            for (int i = 0; i < 3; ++i) {
+                buzzer_.tone(1000, 120);
+                usleep(80 * 1000);
             }
         }).detach();
     }
@@ -792,6 +805,10 @@ public:
         h.getArmCode = [this] { return armCodeJson(); };
         h.disarm = [this] { return disarm(); };
         h.recalibrate = [this] { return recalibrate(); };
+        h.beep = [this] {
+            testBuzzerAsync();
+            return std::string("{\"ok\":true}");
+        };
         h.readDataFile = [this](const std::string &rel) { return readDataFile(rel); };
         h.listDataJson = [this] { return listDataJson(); };
 

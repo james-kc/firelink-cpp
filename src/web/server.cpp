@@ -243,6 +243,9 @@ void WebServer::handleConnection(int client_fd) {
     } else if (method == "POST" && path == "/api/recalibrate") {
         if (handlers_.recalibrate) json(handlers_.recalibrate());
         else json("{\"ok\":false,\"error\":\"no recalibrate handler\"}", 500);
+    } else if (method == "POST" && path == "/api/beep") {
+        if (handlers_.beep) json(handlers_.beep());
+        else json("{\"ok\":false,\"error\":\"no beep handler\"}", 500);
     } else if (method == "POST" && path == "/api/restart") {
         json("{\"ok\":true}");
         close(client_fd);

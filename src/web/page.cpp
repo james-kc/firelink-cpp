@@ -67,6 +67,7 @@ const char *kFirelinkPage = R"PAGE(<!DOCTYPE html>
     <button id="arm">ARM</button>
     <button id="disarm">DISARM</button>
     <button id="recal" class="secondary">Recalibrate pad pressure</button>
+    <button id="beep" class="secondary">Test buzzer</button>
     <button id="restart" class="secondary">Restart flight computer</button>
     <div id="msg"></div>
   </section>
@@ -186,6 +187,11 @@ $('recal').onclick = async () => {
   const r = await (await fetch('/api/recalibrate', {method: 'POST', body: ''})).json();
   msg(r.ok ? ('Pad pressure: ' + fmt(r.pad_pressure_hpa, 2) + ' hPa')
            : ('Recalibration failed: ' + (r.error || '?')), !r.ok);
+};
+
+$('beep').onclick = async () => {
+  const r = await (await fetch('/api/beep', {method: 'POST', body: ''})).json();
+  msg(r.ok ? '3-beep buzzer test sent (PA1 driver reports ok).' : ('Beep failed: ' + (r.error || '?')), !r.ok);
 };
 
 $('restart').onclick = async () => {
