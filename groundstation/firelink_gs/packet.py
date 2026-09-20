@@ -12,6 +12,7 @@ PACKET_SIZE = 48
 VERSION = 1
 TYPE_TELEMETRY = 1
 TYPE_STATUS = 2
+TYPE_LINK = 3
 MAGIC = b"FL"
 
 STATE_NAMES = {0: "BOOT", 1: "PREFLIGHT", 2: "ARMED", 3: "LANDED"}
@@ -21,6 +22,14 @@ STATE_NAMES = {0: "BOOT", 1: "PREFLIGHT", 2: "ARMED", 3: "LANDED"}
 # ax..az, gx..gz, cpm, window_counts, crc16
 FRAME = struct.Struct("<2sBBHBIiihBBHhhB6hHHH")
 assert FRAME.size == PACKET_SIZE, FRAME.size
+
+# Ground-station -> payload link report (type 3). Header (11 bytes) matches
+# FRAME; then body (35 bytes):
+#   last_rx_seq u16 | packets_ok u32 | packets_lost u16 | packets_bad u16 |
+#   rssi_dbm i8 | rate_cps_x100 u16 | rx_age_ms u32 | flags u8 | pad
+# flags bit 0 = rssi_dbm valid.
+LINK_FRAME = struct.Struct("<2sBBHBIHIHHbHIB17x")
+assert LINK_FRAME.size == PACKET_SIZE - 2, LINK_FRAME.size
 
 
 def crc16_ccitt(data: bytes) -> int:
@@ -153,3 +162,68 @@ def encode_status(seq: int, state: int, t_ms: int, text: str) -> bytes:
     body = header + payload
     assert len(body) == PACKET_SIZE - 2, len(body)
     return body + struct.pack("<H", crc16_ccitt(body))
+
+
+def encode_link_report(seq: int, fields: dict) -> bytes:
+    """Encode a ground-station -> payload link report (type 3).
+
+    `fields` keys: last_rx_seq, packets_ok, packets_lost, packets_bad,
+    rssi_dbm, rate_cps, rx_age_ms (seconds float), flags. Missing keys are
+    treated as zero.
+    """
+    if fields.get("rate_cps") is not None:
+        rate_x100 = _iround(fields["rate_cps"] * 100)
+    else:
+        rate_x100 = 0
+    header = struct.pack(
+        "<2sBBHBI", MAGIC, VERSION, TYPE_LINK, seq & 0xFFFF,
+        fields.get("state", 0) & 0xFF, fields.get("t_ms", 0) & 0xFFFFFFFF,
+    )
+    rx_age_ms = int(fields.get("rx_age_ms", 0)) & 0xFFFFFFFF
+    payload = struct.pack(
+        "<HIHHbHIB17x",
+        fields.get("last_rx_seq", 0) & 0xFFFF,
+        fields.get("packets_ok", 0) & 0xFFFFFFFF,
+        fields.get("packets_lost", 0) & 0xFFFF,
+        fields.get("packets_bad", 0) & 0xFFFF,
+        max(-128, min(127, int(fields.get("rssi_dbm", 0) or 0))),
+        rate_x100 & 0xFFFF,
+        rx_age_ms,
+        fields.get("flags", 0) & 0xFF,
+    )
+    body = header + payload
+    assert len(body) == PACKET_SIZE - 2, len(body)
+    return body + struct.pack("<H", crc16_ccitt(body))
+
+
+def decode_link_report(frame: bytes):
+    """Decode a type-3 link-report frame. Returns a dict, or None if the
+    frame is malformed, wrong type, or fails its CRC."""
+    if len(frame) < PACKET_SIZE:
+        return None
+    try:
+        (magic, version, ptype, seq, state, t_ms,
+         last_rx_seq, packets_ok, packets_lost, packets_bad, rssi_dbm,
+         rate_x100, rx_age_ms, flags) = LINK_FRAME.unpack(frame[:PACKET_SIZE - 2])
+    except struct.error:
+        return None
+    if magic != MAGIC or version != VERSION or ptype != TYPE_LINK:
+        return None
+    if crc16_ccitt(frame[:PACKET_SIZE - 2]) != int.from_bytes(
+            frame[PACKET_SIZE - 2:PACKET_SIZE], "little"):
+        return None
+    return {
+        "type": TYPE_LINK,
+        "seq": seq,
+        "state": state,
+        "t_ms": t_ms,
+        "last_rx_seq": last_rx_seq,
+        "packets_ok": packets_ok,
+        "packets_lost": packets_lost,
+        "packets_bad": packets_bad,
+        "rssi_dbm": rssi_dbm,
+        "rssi_dbm_valid": bool(flags & 0x01),
+        "rate_cps": rate_x100 / 100.0,
+        "rx_age_ms": rx_age_ms,
+        "flags": flags,
+    }

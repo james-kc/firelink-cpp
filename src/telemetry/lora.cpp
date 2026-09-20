@@ -3,6 +3,7 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include <termios.h>
+#include <poll.h>
 #include <cstring>
 #include <iostream>
 #include <thread>
@@ -214,6 +215,19 @@ bool LoRa::waitAux(int timeout_ms) {
         std::this_thread::sleep_for(std::chrono::milliseconds(5));
     }
     return false;
+}
+
+size_t LoRa::receive(uint8_t *out, size_t max) {
+    if (uart_fd_ < 0 || !out || max == 0) return 0;
+    size_t total = 0;
+    while (total < max) {
+        pollfd pfd{uart_fd_, POLLIN, 0};
+        if (poll(&pfd, 1, 0) <= 0 || !(pfd.revents & POLLIN)) break;
+        ssize_t n = read(uart_fd_, out + total, max - total);
+        if (n <= 0) break;
+        total += (size_t)n;
+    }
+    return total;
 }
 
 bool LoRa::send(const uint8_t *data, size_t len) {

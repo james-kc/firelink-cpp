@@ -73,6 +73,32 @@ def main():
     check("status decode", d is not None and d["text"] == "LANDED"
           and d["seq"] == 77)
 
+    # Ground-station -> payload link report (type 3) round trip.
+    lf = packet.encode_link_report(7, {
+        "last_rx_seq": 1200, "packets_ok": 12345, "packets_lost": 3,
+        "packets_bad": 1, "rssi_dbm": -78, "rate_cps": 2.03,
+        "rx_age_ms": 500, "flags": 1,
+    })
+    check("link frame size", len(lf) == packet.PACKET_SIZE)
+    dl = packet.decode_link_report(lf)
+    check("link decode", dl is not None)
+    check("link last_rx_seq", dl["last_rx_seq"] == 1200)
+    check("link ok", dl["packets_ok"] == 12345)
+    check("link lost", dl["packets_lost"] == 3)
+    check("link rssi", dl["rssi_dbm"] == -78 and dl["rssi_dbm_valid"])
+    check("link rate", abs(dl["rate_cps"] - 2.03) < 1e-9)
+    check("link rx_age", dl["rx_age_ms"] == 500)
+    badl = bytearray(lf)
+    badl[20] ^= 0xFF
+    check("link rejects corruption",
+          packet.decode_link_report(bytes(badl)) is None)
+    check("telemetry is not a link report",
+          packet.decode_link_report(frame) is None)
+    # A beacon with no RSSI is valid but flagged invalid.
+    no_rssi = packet.encode_link_report(1, {"rssi_dbm": 0, "flags": 0})
+    check("link no-rssi flagged",
+          packet.decode_link_report(no_rssi)["rssi_dbm_valid"] is False)
+
     # Golden-file comparison against the C++ encoder (if present).
     if os.path.exists(GOLDEN_HEX_FILE):
         golden = bytes.fromhex(open(GOLDEN_HEX_FILE).read().strip())

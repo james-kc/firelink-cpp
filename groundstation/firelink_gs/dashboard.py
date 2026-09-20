@@ -65,14 +65,18 @@ def _render(store):
     rx_age = snap["rx_age_s"] if snap["latest"] else None
     age_txt = f"{rx_age:.1f} s" if rx_age is not None else "-"
     link_rows = [
+        ("link", snap["link_state"]),
         ("packets ok", str(snap["packets_ok"])),
         ("bad crc", str(snap["packets_bad"])),
         ("lost (seq)", str(snap["packets_lost"])),
+        ("rate", f"{snap['rate_cps']:.1f} Hz"),
         ("last rx", age_txt),
     ]
-    if snap["rssi_dbm"] is not None:
+    if snap["rssi_confirmed"] and snap["rssi_dbm"] is not None:
         link_rows.append(("rssi", f"{snap['rssi_dbm']} dBm"))
-    link = _kv("Link", link_rows)
+    elif snap["packets_ok"] > 30:
+        link_rows.append(("rssi", "not detected"))
+    link = _kv("LoRa Link", link_rows)
 
     events = Table.grid(padding=(0, 1))
     events.add_column(style="grey50")

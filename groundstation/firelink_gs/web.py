@@ -40,6 +40,14 @@ _LIVE_HTML = """<!DOCTYPE html>
   #hud table td { padding: 1px 6px 1px 0; }
   .st-ARMED { color: #f85149; } .st-PREFLIGHT { color: #58a6ff; }
   .st-LANDED { color: #3fb950; } .st-BOOT { color: #8b949e; }
+  #linkpanel { position: absolute; top: 10px; right: 10px; z-index: 1000;
+               background: rgba(13,17,23,.88); border: 1px solid #30363d;
+               border-radius: 10px; padding: 10px 14px; font-size: 13px;
+               min-width: 230px; text-align: right; }
+  #linkpanel .lk-state { font-weight: 800; font-size: 15px; }
+  .lk-CONNECTED { color: #3fb950; } .lk-STALE { color: #d29922; }
+  .lk-LOST { color: #f85149; } .lk-NO { color: #8b949e; }
+  #linkpanel svg { display: block; margin: 6px 0 2px auto; }
   #hud a { color: #58a6ff; text-decoration: none; }
   #flights { position: absolute; bottom: 12px; right: 12px; z-index: 1000;
              background: rgba(13,17,23,.88); border: 1px solid #30363d;
@@ -62,6 +70,18 @@ _LIVE_HTML = """<!DOCTYPE html>
     <tr><td>geiger</td><td id="cpm">-</td></tr>
     <tr><td></td><td><a id="gmaps" target="_blank" href="#">open in maps</a></td></tr>
   </table>
+</div>
+<div id="linkpanel">
+  <div class="lk-NO" id="lkstate">NO SIGNAL</div>
+  <table class="mono" style="margin-left:auto">
+    <tr><td>signal</td><td id="lk-rssi">n/a</td></tr>
+    <tr><td>frame rate</td><td id="lk-rate">-</td></tr>
+    <tr><td>received</td><td id="lk-ok">0 ok</td></tr>
+    <tr><td>lost</td><td id="lk-lost">0</td></tr>
+    <tr><td>bad crc</td><td id="lk-bad">0</td></tr>
+  </table>
+  <svg id="lk-spark" width="220" height="34"></svg>
+  <div class="mono" style="color:#8b949e;font-size:11px">LoRa link</div>
 </div>
 <div id="flights"><a href="/flights">&#128230; recorded flights</a></div>
 <script>
@@ -96,12 +116,43 @@ async function poll() {
   const gm = document.getElementById('gmaps');
   gm.href = 'https://maps.google.com/?q=' + t.lat + ',' + t.lon;
 
+  const ls = document.getElementById('lkstate');
+  ls.className = 'lk-' + (j.link_state || 'NO').split(' ')[0];
+  ls.textContent = j.link_state || 'NO SIGNAL';
+  document.getElementById('lk-rssi').textContent =
+      (j.rssi_confirmed && j.rssi_dbm != null) ? j.rssi_dbm + ' dBm' : 'n/a';
+  document.getElementById('lk-rate').textContent =
+      (j.rate_cps ?? 0).toFixed(1) + ' Hz';
+  document.getElementById('lk-ok').textContent = j.packets_ok + ' ok';
+  document.getElementById('lk-lost').textContent = j.packets_lost;
+  document.getElementById('lk-bad').textContent = j.packets_bad;
+  drawSpark(j.rssi_history || []);
+
   if (j.track.length > 0) {
     const pts = j.track.map(p => [p[0], p[1]]);
     track.setLatLngs(pts);
     marker.setLatLng(pts[pts.length - 1]);
     if (!seenFirstFix) { map.setView(pts[pts.length - 1], 15); seenFirstFix = true; }
   }
+}
+
+function drawSpark(hist) {
+  const svg = document.getElementById('lk-spark');
+  const W = 220, H = 34, pad = 2;
+  if (hist.length < 2) { svg.innerHTML = ''; return; }
+  let lo = Math.min(...hist), hi = Math.max(...hist);
+  if (hi - lo < 6) { hi = lo + 6; }
+  const pts = hist.map((v, i) => {
+    const x = pad + i * (W - 2 * pad) / (hist.length - 1);
+    const y = H - pad - (v - lo) * (H - 2 * pad) / (hi - lo);
+    return x.toFixed(1) + ',' + y.toFixed(1);
+  }).join(' ');
+  svg.innerHTML = '<polyline fill="none" stroke="#58a6ff" stroke-width="1.5" ' +
+    'points="' + pts + '"/>' +
+    '<text x="2" y="' + (H - 4) + '" fill="#8b949e" font-size="9">' +
+    lo + '</text>' +
+    '<text x="' + (W - 44) + '" y="10" fill="#8b949e" font-size="9">' +
+    hi + '</text>';
 }
 setInterval(poll, 1000); poll();
 </script>
@@ -179,10 +230,14 @@ def create_app(store, log_root="gs_logs"):
         body = {
             "latest": snap["latest"],
             "rx_age_s": snap["rx_age_s"],
+            "link_state": snap["link_state"],
+            "rate_cps": snap["rate_cps"],
             "packets_ok": snap["packets_ok"],
             "packets_bad": snap["packets_bad"],
             "packets_lost": snap["packets_lost"],
             "rssi_dbm": snap["rssi_dbm"],
+            "rssi_confirmed": snap["rssi_confirmed"],
+            "rssi_history": snap["rssi_history"],
             "max_alt": snap["max_alt"],
             "track": [list(p[:3]) for p in snap["track"]],
             "events": [list(e) for e in snap["events"][-20:]],

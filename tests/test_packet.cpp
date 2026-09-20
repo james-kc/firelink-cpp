@@ -95,6 +95,43 @@ int testPacket(const char *golden_path) {
     CHECK("status seq/type", seq == 77 && type == FIRELINK_TYPE_STATUS);
     CHECK("status state", in_fields.state == 3);
 
+    // Type-3 link report round trip (GS -> payload).
+    LinkReportFields lf;
+    lf.last_rx_seq = 4321;
+    lf.packets_ok = 123456;
+    lf.packets_lost = 5;
+    lf.packets_bad = 2;
+    lf.rssi_dbm = (int8_t)-77;
+    lf.rate_cps_x100 = 230;  // 2.30 frames/s
+    lf.rx_age_ms = 430;
+    lf.flags = 1;            // rssi valid
+    uint8_t lframe[FIRELINK_PACKET_SIZE];
+    size_t ln = packetEncodeLink(9, lf, lframe);
+    CHECK("link encode size", ln == FIRELINK_PACKET_SIZE);
+    CHECK("link magic", lframe[0] == 'F' && lframe[1] == 'L');
+    CHECK("link type", lframe[3] == FIRELINK_TYPE_LINK);
+
+    LinkReportFields lf2;
+    CHECK("link decode ok", packetDecodeLink(lframe, ln, lf2));
+    CHECK("link last_rx_seq", lf2.last_rx_seq == 4321);
+    CHECK("link packets_ok", lf2.packets_ok == 123456);
+    CHECK("link packets_lost", lf2.packets_lost == 5);
+    CHECK("link packets_bad", lf2.packets_bad == 2);
+    CHECK("link rssi", lf2.rssi_dbm == -77);
+    CHECK("link rate", lf2.rate_cps_x100 == 230);
+    CHECK("link rx_age", lf2.rx_age_ms == 430);
+    CHECK("link flags", lf2.flags == 1);
+
+    // A telemetry frame is not misread as a link report.
+    CHECK("link rejects telemetry type",
+          !packetDecodeLink(frame, n, lf2));
+    // Link frame corruption is rejected.
+    uint8_t lcorrupt[FIRELINK_PACKET_SIZE];
+    std::memcpy(lcorrupt, lframe, sizeof(lcorrupt));
+    lcorrupt[21] ^= 0xFF;
+    CHECK("link crc rejects corruption",
+          !packetDecodeLink(lcorrupt, ln, lf2));
+
     // Snapshot conversion incl. clamping.
     Snapshot snap;
     snap.state = FlightState::ARMED;

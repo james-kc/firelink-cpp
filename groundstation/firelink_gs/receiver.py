@@ -17,6 +17,21 @@ try:
 except ImportError:  # replay-only operation
     serial = None
 
+# rx_age thresholds for the link-state badge.
+LINK_CONNECTED_S = 5.0
+LINK_STALE_S = 30.0
+RATE_WINDOW_S = 5.0
+
+
+def _link_state(rx_age_s, latest):
+    if latest is None:
+        return "NO SIGNAL"
+    if rx_age_s <= LINK_CONNECTED_S:
+        return "CONNECTED"
+    if rx_age_s <= LINK_STALE_S:
+        return "STALE"
+    return "LOST"
+
 
 class TelemetryStore:
     """Thread-safe latest-values store shared by dashboard and web UI."""
@@ -28,11 +43,14 @@ class TelemetryStore:
         self.packets_ok = 0
         self.packets_bad = 0
         self.packets_lost = 0       # inferred from sequence gaps
-        self.rssi_dbm = None        # last appended RSSI byte, if enabled
+        self.rssi_dbm = None        # last valid appended RSSI byte, if any
+        self.rssi_confirmed = False  # seen a plausible (negative) RSSI
+        self.rssi_history = deque(maxlen=120)  # recent valid samples
         self.events = deque(maxlen=200)   # (time_str, text)
         self.track = deque(maxlen=20000)  # (lat, lon, gps_alt_m, time.time())
         self.max_alt = 0.0
         self._last_seq = None
+        self._rx_times = deque(maxlen=1500)  # telemetry frame arrival times
 
     def record(self, decoded, rssi_dbm=None):
         with self._lock:
@@ -44,8 +62,13 @@ class TelemetryStore:
                     self.packets_lost += gap - 1
             self._last_seq = decoded["seq"]
 
-            if rssi_dbm is not None:
+            # Only a plausible (negative) RSSI is taken as a real reading;
+            # positive values are the mis-framed first byte of the next
+            # frame while the module isn't actually appending RSSI.
+            if rssi_dbm is not None and rssi_dbm < 0:
                 self.rssi_dbm = rssi_dbm
+                self.rssi_confirmed = True
+                self.rssi_history.append(rssi_dbm)
 
             text = None
             if decoded["type"] == packet.TYPE_STATUS:
@@ -53,6 +76,7 @@ class TelemetryStore:
             else:
                 self.latest = decoded
                 self.last_rx_wall = now
+                self._rx_times.append(now)
                 alt = decoded["baro_alt_rel_m"]
                 if alt > self.max_alt:
                     self.max_alt = alt
@@ -75,13 +99,20 @@ class TelemetryStore:
             rate_window = 0.0
             if self.latest:
                 rate_window = time.time() - self.last_rx_wall
+            cutoff = time.time() - RATE_WINDOW_S
+            in_window = sum(1 for t in self._rx_times if t >= cutoff)
+            rate_cps = in_window / RATE_WINDOW_S
             return {
                 "latest": self.latest,
                 "rx_age_s": rate_window,
+                "link_state": _link_state(rate_window, self.latest),
+                "rate_cps": rate_cps,
                 "packets_ok": self.packets_ok,
                 "packets_bad": self.packets_bad,
                 "packets_lost": self.packets_lost,
                 "rssi_dbm": self.rssi_dbm,
+                "rssi_confirmed": self.rssi_confirmed,
+                "rssi_history": list(self.rssi_history),
                 "events": list(self.events),
                 "track": list(self.track),
                 "max_alt": self.max_alt,
@@ -101,9 +132,21 @@ class Receiver(threading.Thread):
         self.replay_file = replay_file
         self.replay_rate_hz = replay_rate_hz
         self._stop = threading.Event()
+        self._ser = None
+        self._io_lock = threading.Lock()
 
     def stop(self):
         self._stop.set()
+
+    def write(self, data: bytes):
+        """Transmit bytes through the (same) radio port. No-op in
+        replay/pty mode where there is no real serial device."""
+        ser = self._ser
+        if ser is None:
+            return
+        with self._io_lock:
+            ser.write(data)
+            ser.flush()
 
     # -- frame synchronisation -------------------------------------------
     def _feed(self, buf: bytearray, chunk: bytes):
@@ -137,14 +180,17 @@ class Receiver(threading.Thread):
         if serial is None:
             raise RuntimeError("pyserial not installed; pip install -r requirements.txt")
         ser = serial.Serial(self.port, self.baud, timeout=0.2)
+        self._ser = ser
         buf = bytearray()
         try:
             while not self._stop.is_set():
                 chunk = ser.read(256)
                 if chunk:
-                    self._feed(buf, chunk)
+                    with self._io_lock:
+                        self._feed(buf, chunk)
         finally:
             ser.close()
+            self._ser = None
 
     def _run_replay(self):
         """Replay frames from a hex-per-line file (written by
