@@ -51,7 +51,14 @@ imu.accel_range_g=16
 imu.gyro_range_dps=2000
 imu.odr_hz=833
 
-# ---- LoRa (Waveshare SX1262 868 MHz UART HAT) ------------------------------
+# ---- LoRa radio back-end ---------------------------------------------------
+# lora.radio selects the flight-side radio:
+#   uart    - Waveshare SX1262/SX1268 868 MHz UART HAT on the Pi's serial
+#             port (the default; the original transparent-serial driver).
+#   sx1272  - RF Solutions RF-LORA-868-SO (Semtech SX1272) packet radio on
+#             SPI0, driven by the C++ SX1272 SPI driver (see docs).
+lora.radio=uart
+
 lora.uart=/dev/serial0
 lora.baud=9600
 lora.configure=false
@@ -62,6 +69,25 @@ lora.tx_power_dbm=22
 lora.channel=18
 lora.rssi_append=false
 lora.fixed_mode=false
+
+# ---- SX1272 radio (only used with lora.radio=sx1272) ----------------------
+lora.spi_dev=/dev/spidev0.0
+lora.spi_speed_hz=1000000
+# Air parameters; the ground station must be configured to match exactly.
+lora.freq_hz=868125000
+lora.sf=9
+lora.bw_khz=125
+lora.cr=5
+lora.sync=0x12
+lora.preamble=8
+# 2..20 dBm on the SX1272 PA_BOOST (20 W / 1 A class; keep an antenna attached).
+lora.tx_power_dbm=20
+
+# ---- SX1272 GPIO (BCM numbering) ------------------------------------------
+# The RF-LORA-868-SO needs its on-board antenna switch driven explicitly.
+pin.lora_rst=25
+pin.lora_rx_switch=23
+pin.lora_tx_switch=24
 
 # ---- Ground-station link ---------------------------------------------------
 # With lora.rssi_append=true the module appends an RSSI byte after every

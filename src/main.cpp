@@ -20,7 +20,9 @@
 #include "sensors/bme280.h"
 #include "sensors/geiger.h"
 #include "telemetry/lora.h"
+#include "telemetry/lora_sx1272.h"
 #include "telemetry/packet.h"
+#include "telemetry/radio.h"
 #include "outputs/buzzer_pwm.h"
 #include "web/server.h"
 #include "notes.h"
@@ -482,7 +484,7 @@ public:
         }
     }
 
-    void telemetryThread(std::atomic<bool> &stop, LoRa &lora) {
+    void telemetryThread(std::atomic<bool> &stop, IRadio &radio) {
         std::cout << "Telemetry thread running" << std::endl;
         uint16_t seq = 0;
 
@@ -496,7 +498,7 @@ public:
             TelemetryFields f = telemetryFieldsFromSnapshot(snap);
             uint8_t buf[FIRELINK_PACKET_SIZE];
             packetEncodeTelemetry(seq, f, buf);
-            lora.send(buf, sizeof(buf));
+            radio.send(buf, sizeof(buf));
             state_.setTelemetrySeq(seq);
             seq++;
 
@@ -510,7 +512,7 @@ public:
                 uint32_t t_ms = (snap.arm_time_ms > 0)
                                 ? (uint32_t)(steadyMs() - snap.arm_time_ms) : 0;
                 packetEncodeStatus(seq, (uint8_t)snap.state, t_ms, status, buf);
-                lora.send(buf, sizeof(buf));
+                radio.send(buf, sizeof(buf));
                 seq++;
             }
 
@@ -531,13 +533,13 @@ public:
         beacon_count_++;
     }
 
-    void linkThread(std::atomic<bool> &stop, LoRa &lora) {
+    void linkThread(std::atomic<bool> &stop, IRadio &radio) {
         std::cout << "Link thread running" << std::endl;
-        const bool rssi_appended = lora.settings().rssi_append;
+        const bool rssi_appended = radio.rssiAppended();
         std::vector<uint8_t> buf;
         while (!stop.load()) {
             uint8_t chunk[64];
-            size_t n = lora.receive(chunk, sizeof(chunk));
+            size_t n = radio.receive(chunk, sizeof(chunk));
             if (n == 0) {
                 std::this_thread::sleep_for(std::chrono::milliseconds(20));
                 continue;
@@ -880,33 +882,61 @@ public:
 
         std::vector<std::thread> threads;
 
-        LoRa::Settings ls;
-        ls.uart = cfg_.getString("lora.uart", "/dev/serial0");
-        ls.baud = cfg_.getInt("lora.baud", 9600);
-        ls.m0_pin = cfg_.getInt("pin.lora_m0", 22);
-        ls.m1_pin = cfg_.getInt("pin.lora_m1", 27);
-        ls.aux_pin = cfg_.getInt("pin.lora_aux", -1);
-        ls.chip = cfg_.getString("gpio.chip", "gpiochip0");
-        ls.configure = cfg_.getBool("lora.configure", false);
-        ls.address = (uint16_t)cfg_.getInt("lora.address", 0);
-        ls.net_id = (uint8_t)cfg_.getInt("lora.net_id", 0);
-        ls.air_baud = cfg_.getInt("lora.air_baud", 2400);
-        ls.tx_power_dbm = cfg_.getInt("lora.tx_power_dbm", 22);
-        ls.channel = (uint8_t)cfg_.getInt("lora.channel", 18);
-        ls.rssi_append = cfg_.getBool("lora.rssi_append", false);
-        ls.fixed_mode = cfg_.getBool("lora.fixed_mode", false);
-
-        LoRa lora(ls);
-        if (!lora.begin()) {
-            std::cerr << "LoRa unavailable, link down" << std::endl;
+        // Radio back-end: "uart" keeps the Waveshare SX1262 UART HAT;
+        // "sx1272" uses the RF-LORA-868-SO SX1272 packet radio on SPI0.
+        std::unique_ptr<IRadio> radio;
+        const std::string radio_kind = cfg_.getString("lora.radio", "uart");
+        if (radio_kind == "sx1272") {
+            LoRaSX1272::Settings sx;
+            sx.spi_dev = cfg_.getString("lora.spi_dev", "/dev/spidev0.0");
+            sx.spi_speed_hz = (uint32_t)cfg_.getInt("lora.spi_speed_hz", 1000000);
+            sx.chip = cfg_.getString("gpio.chip", "gpiochip0");
+            sx.rst_pin = cfg_.getInt("pin.lora_rst", 25);
+            sx.rx_switch_pin = cfg_.getInt("pin.lora_rx_switch", 23);
+            sx.tx_switch_pin = cfg_.getInt("pin.lora_tx_switch", 24);
+            sx.freq_hz = (uint64_t)cfg_.getInt("lora.freq_hz", 868125000);
+            sx.sf = cfg_.getInt("lora.sf", 9);
+            sx.bw_khz = cfg_.getInt("lora.bw_khz", 125);
+            sx.cr = cfg_.getInt("lora.cr", 5);
+            sx.sync_word = (uint8_t)cfg_.getInt("lora.sync", 0x12);
+            sx.preamble = cfg_.getInt("lora.preamble", 8);
+            sx.tx_power_dbm = cfg_.getInt("lora.tx_power_dbm", 20);
+            sx.rssi_append = cfg_.getBool("lora.rssi_append", false);
+            auto sx_radio = std::make_unique<LoRaSX1272>(sx);
+            if (!sx_radio->begin()) {
+                std::cerr << "SX1272 unavailable, link down" << std::endl;
+            }
+            radio = std::move(sx_radio);
+        } else {
+            LoRa::Settings ls;
+            ls.uart = cfg_.getString("lora.uart", "/dev/serial0");
+            ls.baud = cfg_.getInt("lora.baud", 9600);
+            ls.m0_pin = cfg_.getInt("pin.lora_m0", 22);
+            ls.m1_pin = cfg_.getInt("pin.lora_m1", 27);
+            ls.aux_pin = cfg_.getInt("pin.lora_aux", -1);
+            ls.chip = cfg_.getString("gpio.chip", "gpiochip0");
+            ls.configure = cfg_.getBool("lora.configure", false);
+            ls.address = (uint16_t)cfg_.getInt("lora.address", 0);
+            ls.net_id = (uint8_t)cfg_.getInt("lora.net_id", 0);
+            ls.air_baud = cfg_.getInt("lora.air_baud", 2400);
+            ls.tx_power_dbm = cfg_.getInt("lora.tx_power_dbm", 22);
+            ls.channel = (uint8_t)cfg_.getInt("lora.channel", 18);
+            ls.rssi_append = cfg_.getBool("lora.rssi_append", false);
+            ls.fixed_mode = cfg_.getBool("lora.fixed_mode", false);
+            auto uart_radio = std::make_unique<LoRa>(ls);
+            if (!uart_radio->begin()) {
+                std::cerr << "LoRa HAT unavailable, link down" << std::endl;
+            }
+            radio = std::move(uart_radio);
         }
+        IRadio *radio_ptr = radio.get();
 
         threads.emplace_back([this, &stop] { gpsThread(stop); });
         threads.emplace_back([this, &stop] { imuThread(stop); });
         threads.emplace_back([this, &stop] { envThread(stop); });
         threads.emplace_back([this, &stop] { geigerThread(stop); });
-        threads.emplace_back([this, &stop, &lora] { telemetryThread(stop, lora); });
-        threads.emplace_back([this, &stop, &lora] { linkThread(stop, lora); });
+        threads.emplace_back([this, &stop, radio_ptr] { telemetryThread(stop, *radio_ptr); });
+        threads.emplace_back([this, &stop, radio_ptr] { linkThread(stop, *radio_ptr); });
 
         // Web API.
         WebServer::Handlers h;

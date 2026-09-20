@@ -17,7 +17,11 @@ HOST_SRC := src/config.cpp src/state.cpp src/sensors/nmea.cpp src/telemetry/pack
 TEST_SRC := $(wildcard tests/*.cpp)
 TEST_BIN := tests/run_tests
 
-all: $(TARGET)
+# Bench sweep tool for the SX1272 flight radio (needs Pi SPI0 + libgpiod).
+SWEEP_BIN := tools/lora_sweep
+SWEEP_SRC := tools/lora_sweep.cpp src/telemetry/lora_sx1272.cpp src/telemetry/packet.cpp
+
+all: $(TARGET) sweep
 
 # Link
 $(TARGET): $(OBJ)
@@ -34,11 +38,17 @@ test: $(TEST_BIN)
 $(TEST_BIN): $(TEST_SRC) $(HOST_SRC)
 	$(CXX) $(CXXFLAGS) $^ -o $@ -lpthread
 
+# Bench sweep tool.
+sweep: $(SWEEP_BIN)
+
+$(SWEEP_BIN): $(SWEEP_SRC) include/telemetry/lora_sx1272.h include/telemetry/radio.h
+	$(CXX) $(CXXFLAGS) $(SWEEP_SRC) -o $@ $(LIBS)
+
 # Regenerate the golden frame used by the Python codec test.
 golden: $(TEST_BIN)
 	./$(TEST_BIN) --emit-golden groundstation/tests/golden_frame.hex
 
 clean:
-	rm -f $(OBJ) $(TARGET) $(TEST_BIN)
+	rm -f $(OBJ) $(TARGET) $(TEST_BIN) $(SWEEP_BIN)
 
-.PHONY: all test golden clean
+.PHONY: all test golden sweep clean

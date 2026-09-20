@@ -5,6 +5,7 @@
 #include <cstdint>
 #include <cstddef>
 #include <gpiod.h>
+#include "telemetry/radio.h"
 
 // Driver for the Waveshare SX1262/SX1268 LoRa HAT. These HATs carry an
 // EBYTE-E22-style module that presents a UART to the host: bytes written to
@@ -21,7 +22,7 @@
 // An optional AUX pin reports when the radio is busy; if wired it is polled
 // before large writes, otherwise transmission timing is estimated from the
 // configured air data rate.
-class LoRa {
+class LoRa : public IRadio {
 public:
     struct Settings {
         std::string uart = "/dev/serial0";
@@ -44,7 +45,7 @@ public:
     explicit LoRa(const Settings &settings);
     ~LoRa();
 
-    bool begin();
+    bool begin() override;
 
     // Push configuration registers (C2 command block). Only call in
     // configuration mode; begin() handles that when settings.configure=true.
@@ -52,18 +53,20 @@ public:
 
     // Queue bytes for transmission. Blocks until written (waiting for AUX
     // when available). Returns false on hard failure.
-    bool send(const uint8_t *data, size_t len);
+    bool send(const uint8_t *data, size_t len) override;
 
     // Non-blocking drain of whatever bytes the module has placed on the
     // UART (transparent-mode RX data plus the module's appended RSSI byte).
     // Appends up to `max` bytes to `out` and returns how many were read.
     // Never blocks; safe to call from its own thread alongside send().
-    size_t receive(uint8_t *out, size_t max);
+    size_t receive(uint8_t *out, size_t max) override;
 
     // Milliseconds a frame of `bytes` is expected to occupy the radio,
     // based on the configured air data rate. Used for pacing when AUX is
     // not wired.
-    int airtimeMs(size_t bytes) const;
+    int airtimeMs(size_t bytes) const override;
+
+    bool rssiAppended() const override { return s_.rssi_append; }
 
     const Settings &settings() const { return s_; }
 

@@ -17,6 +17,8 @@ bool Config::isRestartRequiredKey(const std::string &key) {
         "pin.", "gpio.", "i2c.", "imu.", "lora.uart", "lora.baud",
         "lora.configure", "lora.channel", "lora.address", "lora.net_id",
         "lora.air_baud", "lora.tx_power", "lora.rssi_append", "lora.fixed_mode",
+        "lora.radio", "lora.spi", "lora.freq_hz", "lora.sf", "lora.bw_khz",
+        "lora.cr", "lora.sync", "lora.preamble", "lora.tx_power_dbm",
         "gps.update_hz", "geiger.", "data_dir",
     };
     for (const auto &p : prefixes) {

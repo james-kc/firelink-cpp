@@ -121,3 +121,39 @@ The flight computer only writes module registers when `lora.configure=true`
 
 **Verify this map against the Waveshare wiki for your HAT revision before
 enabling `lora.configure`.**
+
+## SX1272 flight radio (RF-LORA-868-SO)
+
+The flight-side radio can be switched to a raw Semtech SX1272 packet radio on
+SPI0 with `lora.radio=sx1272` (driver: `src/telemetry/lora_sx1272.cpp`,
+interface `include/telemetry/radio.h`). Wiring and air parameters are in
+`include/telemetry/lora_sx1272.h` and `firelink.conf.example`.
+
+- **Frame format is unchanged** — a type-1/2/3 frame is still exactly the
+  48-byte payload above, transmitted as one LoRa packet of
+  `FIRELINK_PACKET_SIZE` bytes. CRC is handled by the SX1272's on-air CRC as
+  well as the in-frame CRC-16; a frame with on-air CRC errors is dropped.
+- **The SX1272 parameters are NOT the HAT's.** The HAT (E22-style) presents
+  a UART and picks its own on-air (SF, BW, CR) from an "air data rate" byte
+  that cannot be read back. A raw SX1272 on one end and a transparent HAT on
+  the other are incompatible unless their air parameters happen to match.
+- **Interop procedure (bench, Milestone M2):** the ground station keeps its
+  HAT; the flight SX1272 is the transmitter. Build the sweep tool
+  (`make sweep`), then run `sudo ./tools/lora_sweep --sweep --count 10`
+  while the ground-station console runs. Every (SF, BW, CR) tuple is
+  announced with a type-2 `SWEP ...` status frame and followed by `--count`
+  telemetry frames. The tuple whose status text and sequencing appear on the
+  GS console is the compatible one; freeze those settings into
+  `firelink.conf` (`lora.sf`, `lora.bw_khz`, `lora.cr`, `lora.sync`).
+- **If no tuple decodes** (the HAT's sync word or preamble differs), the
+  fallback is to move the ground station onto its own SX1272 (or another
+  raw LoRa radio) so both ends are raw SX1272s.
+- **Ground-station beacons (type 3) are lost** while the GS uses the broken
+  TX side of its HAT, so the flight web page will show the GS OFFLINE
+  (uplink RSSI also unavailable). Downlink RSSI still works: enable
+  `lora.rssi_append` on the SX1272 and it appends `RegPktRssi - 139` dBm as
+  the standard unsigned two's-complement byte after each received frame.
+- **Duty cycle:** one 48 B frame at SF9/BW125/CR4/5 is ~276 ms on-air; the
+  default 2 Hz telemetry would exceed typical 1% duty-cycle rules, so keep
+  this radio for launch-day short-range passes or raise the air parameters /
+  lower `rate.telemetry_hz` accordingly.

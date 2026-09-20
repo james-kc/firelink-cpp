@@ -22,6 +22,18 @@ Scarecrow and Banshee rockets (MACH 24/25).
 | Gravity Geiger counter (SEN0463) | GPIO pulse | BCM 17 |
 | Buzzer | GPIO | BCM 4 |
 | Waveshare SX1262 868 MHz LoRa HAT | UART + GPIO | `/dev/serial0`, M0/M1 = BCM 22/27 |
+| RF Solutions RF-LORA-868-SO (SX1272) | SPI0 + GPIO | `/dev/spidev0.0`, RST/RX/TX = BCM 25/23/24 |
+
+The flight radio back-end is selected with `lora.radio` (see
+`firelink.conf.example`):
+- `uart` — the original Waveshare SX1262 HAT, a transparent serial pipe
+  (`LoRa` in `src/telemetry/lora.cpp`).
+- `sx1272` — the RF-LORA-868-SO raw SX1272 packet radio, driven directly
+  over SPI0 with explicit antenna-switch GPIOs (`LoRaSX1272` in
+  `src/telemetry/lora_sx1272.cpp`). Both ends must share the exact LoRa air
+  parameters, which are **not** compatible with the HAT's opaque
+  transparent-mode parameters — see [`docs/telemetry_protocol.md`](docs/telemetry_protocol.md)
+  for the bench interop procedure.
 
 ## How it works
 
@@ -73,7 +85,7 @@ Copy `firelink.conf.example` to `firelink.conf` to tweak persisted settings
 ## Build & run
 
 ```bash
-make            # builds ./firelink
+make            # builds ./firelink and ./tools/lora_sweep
 make test       # host-side unit tests (no Pi hardware needed)
 sudo ./firelink [firelink.conf]
 ```
@@ -82,6 +94,15 @@ or with CMake:
 
 ```bash
 cmake -B build && cmake --build build
+```
+
+Bench-transmit the SX1272 flight radio (interop-testing the ground station,
+see the radio contract doc):
+
+```bash
+make sweep
+sudo ./tools/lora_sweep --sf 9 --bw 125 --cr 5 --count 20
+sudo ./tools/lora_sweep --sweep --count 10
 ```
 
 ## Ground station
@@ -104,11 +125,12 @@ creates a virtual serial port broadcasting a synthetic flight — point
 ```
 src/, include/        flight computer (C++)
   sensors/            gps, imu, bme280, geiger, nmea parser
-  telemetry/          LoRa UART driver, 48-byte packet codec
+  telemetry/          radio interface, LoRa UART + SX1272 SPI drivers, packet codec
   web/                embedded HTTP server + control page
   outputs/            buzzer (GPIO + PWM melodies)
 groundstation/        Python ground station + test tools
 system/               systemd unit + WiFi AP setup
 tests/                host-runnable C++ tests (packet, nmea, config)
+tools/                bench tools (lora_sweep, SX1272 interop transmitter)
 docs/                 telemetry protocol spec
 ```
