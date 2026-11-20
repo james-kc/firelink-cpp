@@ -54,6 +54,12 @@ public:
     // when available). Returns false on hard failure.
     bool send(const uint8_t *data, size_t len);
 
+    // Non-blocking drain of whatever bytes the module has placed on the
+    // UART (transparent-mode RX data plus the module's appended RSSI byte).
+    // Appends up to `max` bytes to `out` and returns how many were read.
+    // Never blocks; safe to call from its own thread alongside send().
+    size_t receive(uint8_t *out, size_t max);
+
     // Milliseconds a frame of `bytes` is expected to occupy the radio,
     // based on the configured air data rate. Used for pacing when AUX is
     // not wired.

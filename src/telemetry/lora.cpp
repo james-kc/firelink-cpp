@@ -2,6 +2,7 @@
 
 #include <fcntl.h>
 #include <unistd.h>
+#include <poll.h>
 #include <termios.h>
 #include <cstring>
 #include <iostream>
@@ -112,7 +113,7 @@ void LoRa::setMode(int m0, int m1) {
     if (m0_) gpiod_line_set_value(m0_, m0);
     if (m1_) gpiod_line_set_value(m1_, m1);
     // Mode switches take a few milliseconds inside the module.
-    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    std::this_thread::sleep_for(std::chrono::milliseconds(200));
 }
 
 bool LoRa::openUart() {
@@ -150,7 +151,7 @@ bool LoRa::begin() {
     if (!openUart()) return false;
 
     if (s_.configure) {
-        setMode(0, 1); // configuration mode
+        setMode(0, 1); // configuration mode (this board: M0=LOW M1=HIGH)
         bool ok = applyModuleConfig();
         setMode(0, 0); // back to transmission mode either way
         if (!ok) {
@@ -187,11 +188,16 @@ bool LoRa::applyModuleConfig() {
     }
 
     // Expect an echo beginning with C1 00 09 ...
+    // Reads must be bounded (poll timeout): the raw FD blocks forever on
+    // VMIN=1 if the module never echoes, which would hang the telemetry thread.
     uint8_t resp[12] = {0};
     int got = 0;
+    struct pollfd pfd{uart_fd_, POLLIN, 0};
     for (int tries = 0; tries < 20 && got < 3; ++tries) {
-        ssize_t n = read(uart_fd_, resp + got, sizeof(resp) - got);
-        if (n > 0) got += n;
+        if (poll(&pfd, 1, 100) > 0) {
+            ssize_t n = read(uart_fd_, resp + got, sizeof(resp) - got);
+            if (n > 0) got += n;
+        }
         std::this_thread::sleep_for(std::chrono::milliseconds(50));
     }
     if (got >= 3 && resp[0] == 0xC1 && resp[1] == 0x00 && resp[2] == 0x09) {
@@ -214,6 +220,19 @@ bool LoRa::waitAux(int timeout_ms) {
         std::this_thread::sleep_for(std::chrono::milliseconds(5));
     }
     return false;
+}
+
+size_t LoRa::receive(uint8_t *out, size_t max) {
+    if (uart_fd_ < 0 || !out || max == 0) return 0;
+    size_t total = 0;
+    while (total < max) {
+        pollfd pfd{uart_fd_, POLLIN, 0};
+        if (poll(&pfd, 1, 0) <= 0 || !(pfd.revents & POLLIN)) break;
+        ssize_t n = read(uart_fd_, out + total, max - total);
+        if (n <= 0) break;
+        total += (size_t)n;
+    }
+    return total;
 }
 
 bool LoRa::send(const uint8_t *data, size_t len) {
