@@ -16,7 +16,7 @@ Reference implementations:
 |--------|------|--------------------|--------|----------------------------------------|
 | 0      | 2    | magic              | bytes  | ASCII `F` `L` (0x46 0x4C)               |
 | 2      | 1    | version            | u8     | protocol version, currently 1          |
-| 3      | 1    | type               | u8     | 1 = telemetry, 2 = status text         |
+| 3      | 1    | type               | u8     | 1 = telemetry, 2 = status text, 3 = link report |
 | 4      | 2    | seq                | u16    | wrapping sequence number (loss detect) |
 | 6      | 1    | state              | u8     | 0 BOOT, 1 PREFLIGHT, 2 ARMED, 3 LANDED |
 | 7      | 4    | t_ms               | u32    | ms since arm (0 before arming)         |
@@ -64,6 +64,29 @@ LAUNCHED, LANDED, DISARMED). LAUNCHED is sent when the launch latch trips
 (baro altitude gain or sustained high-g while ARMED); the state byte remains
 ARMED until landing detection.
 
+## Type 3 — ground-station link report payload (bytes 11..45)
+
+Sent by the ground station every few seconds (`--beacon-rate`, default 5 s,
+auto-TX on) so the payload can show the GS side of the link. Carries the
+GS's view of the payload telemetry stream, so the onboard page can report the
+downlink from the far end rather than guessing. Python struct format
+(`<2sBBHBIHIHHbHIB17x`):
+
+| Offset | Size | Field          | Type | Units / scale                     |
+|--------|------|----------------|------|-----------------------------------|
+| 11     | 2    | last_rx_seq    | u16  | last payload telemetry seq seen   |
+| 13     | 4    | packets_ok     | u32  | valid payload frames (log loop)   |
+| 17     | 2    | packets_lost   | u16  | payload seq gaps                  |
+| 19     | 2    | packets_bad    | u16  | frames lost mid-reassembly        |
+| 21     | 1    | rssi_dbm       | i8   | GS-measured RSSI; valid if flags bit 0 |
+| 22     | 2    | rate_cps_x100  | u16  | payload frame rate, frames/s × 100 |
+| 24     | 4    | rx_age_ms      | u32  | age of the last valid payload frame |
+| 28     | 1    | flags          | u8   | bit 0 = rssi_dbm valid            |
+| 29     | 17   | pad            | —    | zero padding to byte 45           |
+
+The payload accepts a beacon and marks the ground station ONLINE while
+`link.online_timeout_s` (default 15 s) has not elapsed since the last one.
+
 ## Link budget / rates
 
 48 B at the default 2400 bit/s air data rate ≈ 220 ms on-air per frame
@@ -73,9 +96,14 @@ typical duty-cycle limits. Raise `lora.air_baud` before raising
 
 ## Optional RSSI byte
 
-When `lora.rssi_append=true` on **both** modules, the receiving module
-appends one RSSI byte after each packet. The ground station accepts this via
-its `--rssi` flag; with it off, it resynchronises on the `FL` magic + CRC.
+Each module can be told to append one RSSI byte after every **received**
+packet (`REG3` bit 6, e.g. `lora.rssi_append=true`). Turning it on for the
+**ground-station** module lets the payload measure the uplink (GS → payload)
+signal; turning it on for the **payload** module lets the ground station
+measure the downlink. The appended byte is phrased unsigned two's-complement
+(e.g. 0xB2 → −78 dBm); a non-negative value is treated as "not a real
+signal". The receiving side resynchronises on the `FL` magic + CRC either
+way.
 
 ## LoRa module register notes (Waveshare / EBYTE E22 style)
 

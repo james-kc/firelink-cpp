@@ -40,6 +40,10 @@ const char *kFirelinkPage = R"PAGE(<!DOCTYPE html>
   a { color: #58a6ff; }
   #msg { min-height: 1.2em; font-size: 0.9rem; }
   .mono { font-family: ui-monospace, Menlo, monospace; }
+  .lk-badge { padding: 2px 10px; border-radius: 999px; font-weight: 700;
+              font-size: 0.7rem; }
+  .lk-online { background: #2da44e; color: #fff; }
+  .lk-offline { background: #6e7681; color: #fff; }
 </style>
 </head>
 <body>
@@ -52,6 +56,11 @@ const char *kFirelinkPage = R"PAGE(<!DOCTYPE html>
   <section>
     <h2>Status</h2>
     <div class="grid" id="status-grid"></div>
+  </section>
+
+  <section>
+    <h2>LoRa Link <span id="lk-badge" class="lk-badge lk-offline">OFFLINE</span></h2>
+    <div class="grid" id="link-grid"></div>
   </section>
 
   <section>
@@ -130,6 +139,27 @@ async function poll() {
     ];
     $('status-grid').innerHTML = rows.map(([k, v, cls]) =>
       `<div class="kv"><div class="k">${k}</div><div class="v ${cls || ''}">${v}</div></div>`).join('');
+
+    const lk = s.link || {};
+    const lkOnline = !!lk.gs_online;
+    const lkRows = [
+      ['Ground station', lkOnline ? 'ONLINE' : (lk.beacon_count ? 'OFFLINE' : 'never seen'),
+        lkOnline ? 'ok' : 'bad'],
+      ['Beacon age', (lk.beacon_age_s >= 0) ? lk.beacon_age_s + ' s' : '-'],
+      ['Beacons', lk.beacon_count || 0],
+      ['Last payload seq seen', lk.last_rx_seq],
+      ['GS rx packets', (lk.gs_packets_ok || 0) + ' ok / '
+        + (lk.gs_packets_lost || 0) + ' lost / ' + (lk.gs_packets_bad || 0) + ' bad'],
+      ['GS rx age', (lk.gs_rx_age_ms != null) ? Math.floor(lk.gs_rx_age_ms / 1000) + ' s' : '-'],
+      ['GS frame rate', lk.gs_rate_cps ? fmt(lk.gs_rate_cps, 2) + ' /s' : '-'],
+      ['Downlink RSSI (at GS)', lk.gs_rssi_valid ? lk.gs_rssi_dbm + ' dBm' : '-'],
+      ['Uplink RSSI (at payload)', lk.uplink_rssi_valid ? lk.uplink_rssi_dbm + ' dBm' : '-'],
+    ];
+    $('link-grid').innerHTML = lkRows.map(([k, v, cls]) =>
+      `<div class="kv"><div class="k">${k}</div><div class="v ${cls || ''}">${v}</div></div>`).join('');
+    const lkb = $('lk-badge');
+    lkb.textContent = lkOnline ? 'ONLINE' : 'OFFLINE';
+    lkb.className = 'lk-badge ' + (lkOnline ? 'lk-online' : 'lk-offline');
   } catch (e) { /* retry next tick */ }
 }
 setInterval(poll, 1000); poll();

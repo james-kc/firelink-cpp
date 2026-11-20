@@ -63,6 +63,14 @@ lora.channel=18
 lora.rssi_append=false
 lora.fixed_mode=false
 
+# ---- Ground-station link ---------------------------------------------------
+# With lora.rssi_append=true the module appends an RSSI byte after every
+# received frame, letting the payload measure the uplink (GS -> payload)
+# signal and show it on the onboard LoRa LINK panel.
+# link.online_timeout_s is how long after the last GS beacon the onboard page
+# still reports the ground station as ONLINE (GS beacons arrive ~every 5 s).
+link.online_timeout_s=15
+
 # ---- Landing detection -----------------------------------------------------
 # Landing is only considered once a launch has latched: baro altitude gain
 # above the pad OR sustained high |accel|, held for launch_confirm_s seconds.

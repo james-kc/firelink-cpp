@@ -25,6 +25,7 @@
 #define FIRELINK_PACKET_VERSION   1
 #define FIRELINK_TYPE_TELEMETRY   1
 #define FIRELINK_TYPE_STATUS      2
+#define FIRELINK_TYPE_LINK        3   // ground-station -> payload link report
 #define FIRELINK_STATUS_TEXT_MAX  37
 
 uint16_t crc16Ccitt(const uint8_t *data, size_t len);
@@ -54,14 +55,34 @@ struct TelemetryFields {
 // Clamp/convert a shared-state Snapshot into wire fields.
 TelemetryFields telemetryFieldsFromSnapshot(const Snapshot &snap);
 
+// Type 3 (link report) body, matched by the Python struct in packet.py:
+//   <2sBBHBIHIHHbHIB17x
+// Bytes 11..28 carry the ground-station's view of the payload link.
+struct LinkReportFields {
+    uint16_t last_rx_seq = 0;    // last payload telemetry sequence seen
+    uint32_t packets_ok = 0;     // payload frames accepted (valid for log loop)
+    uint16_t packets_lost = 0;   // gaps in payload sequence
+    uint16_t packets_bad = 0;    // magic/CRC failures while in a frame
+    int8_t   rssi_dbm = 0;       // signed dBm; valid only if flags bit 0 set
+    uint16_t rate_cps_x100 = 0;  // payload frame rate, frames/s * 100
+    uint32_t rx_age_ms = 0;      // ms since the last valid payload frame
+    uint8_t  flags = 0;          // bit 0 = rssi_dbm valid
+};
+
 // Encode into a caller-provided 48-byte buffer. Returns FIRELINK_PACKET_SIZE.
 size_t packetEncodeTelemetry(uint16_t seq, const TelemetryFields &f, uint8_t out[FIRELINK_PACKET_SIZE]);
 size_t packetEncodeStatus(uint16_t seq, uint8_t state, uint32_t t_ms,
                           const std::string &text, uint8_t out[FIRELINK_PACKET_SIZE]);
+size_t packetEncodeLink(uint16_t seq, const LinkReportFields &f,
+                        uint8_t out[FIRELINK_PACKET_SIZE]);
 
 // Validate + decode. Returns false on bad magic / length / CRC.
 bool packetDecode(const uint8_t *buf, size_t len, uint16_t &seq_out,
                   uint8_t &type_out, TelemetryFields &fields_out,
                   std::string &status_text_out);
+
+// Validate + decode a type-3 link report (buf must be at least the full
+// 48-byte frame, validated magic/version/type/CRC).
+bool packetDecodeLink(const uint8_t *buf, size_t len, LinkReportFields &f);
 
 #endif // PACKET_H

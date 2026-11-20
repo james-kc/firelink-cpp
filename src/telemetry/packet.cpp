@@ -123,6 +123,42 @@ size_t packetEncodeStatus(uint16_t seq, uint8_t state, uint32_t t_ms,
     return finishFrame(out);
 }
 
+size_t packetEncodeLink(uint16_t seq, const LinkReportFields &f,
+                        uint8_t out[FIRELINK_PACKET_SIZE]) {
+    writeHeader(out, FIRELINK_TYPE_LINK, seq, 0);
+    putU32(out + 7, 0); // t_ms unused
+    putU16(out + 11, f.last_rx_seq);
+    putU32(out + 13, f.packets_ok);
+    putU16(out + 17, f.packets_lost);
+    putU16(out + 19, f.packets_bad);
+    out[21] = (uint8_t)f.rssi_dbm;
+    putU16(out + 22, f.rate_cps_x100);
+    putU32(out + 24, f.rx_age_ms);
+    out[28] = f.flags;
+    for (size_t i = 29; i < FIRELINK_PACKET_SIZE - 2; ++i) out[i] = 0;
+    return finishFrame(out);
+}
+
+bool packetDecodeLink(const uint8_t *buf, size_t len, LinkReportFields &f) {
+    if (len < FIRELINK_PACKET_SIZE) return false;
+    if (buf[0] != 'F' || buf[1] != 'L') return false;
+    if (buf[2] != FIRELINK_PACKET_VERSION) return false;
+    if (buf[3] != FIRELINK_TYPE_LINK) return false;
+
+    uint16_t crc = getU16(buf + FIRELINK_PACKET_SIZE - 2);
+    if (crc != crc16Ccitt(buf, FIRELINK_PACKET_SIZE - 2)) return false;
+
+    f.last_rx_seq = getU16(buf + 11);
+    f.packets_ok = getU32(buf + 13);
+    f.packets_lost = getU16(buf + 17);
+    f.packets_bad = getU16(buf + 19);
+    f.rssi_dbm = (int8_t)buf[21];
+    f.rate_cps_x100 = getU16(buf + 22);
+    f.rx_age_ms = getU32(buf + 24);
+    f.flags = buf[28];
+    return true;
+}
+
 bool packetDecode(const uint8_t *buf, size_t len, uint16_t &seq_out,
                   uint8_t &type_out, TelemetryFields &f,
                   std::string &status_text_out) {

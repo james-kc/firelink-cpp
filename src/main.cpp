@@ -170,7 +170,8 @@ public:
     FlightComputer(Config &cfg, SharedState &state)
         : cfg_(cfg), state_(state),
           buzzer_((unsigned int)cfg.getInt("pin.buzzer", 4),
-                  cfg.getString("gpio.chip", "gpiochip0")) {}
+                  cfg.getString("gpio.chip", "gpiochip0")),
+          link_online_timeout_ms_(1000u * (uint64_t)cfg.getInt("link.online_timeout_s", 15)) {}
 
     // ------------------------------------------------------------ buzzer --
     void beepAsync(int ms) {
@@ -481,29 +482,7 @@ public:
         }
     }
 
-    void telemetryThread(std::atomic<bool> &stop) {
-        LoRa::Settings ls;
-        ls.uart = cfg_.getString("lora.uart", "/dev/serial0");
-        ls.baud = cfg_.getInt("lora.baud", 9600);
-        ls.m0_pin = cfg_.getInt("pin.lora_m0", 22);
-        ls.m1_pin = cfg_.getInt("pin.lora_m1", 27);
-        ls.aux_pin = cfg_.getInt("pin.lora_aux", -1);
-        ls.chip = cfg_.getString("gpio.chip", "gpiochip0");
-        ls.configure = cfg_.getBool("lora.configure", false);
-        ls.address = (uint16_t)cfg_.getInt("lora.address", 0);
-        ls.net_id = (uint8_t)cfg_.getInt("lora.net_id", 0);
-        ls.air_baud = cfg_.getInt("lora.air_baud", 2400);
-        ls.tx_power_dbm = cfg_.getInt("lora.tx_power_dbm", 22);
-        ls.channel = (uint8_t)cfg_.getInt("lora.channel", 18);
-        ls.rssi_append = cfg_.getBool("lora.rssi_append", false);
-        ls.fixed_mode = cfg_.getBool("lora.fixed_mode", false);
-
-        LoRa lora(ls);
-        if (!lora.begin()) {
-            std::cerr << "Telemetry: LoRa unavailable, link down" << std::endl;
-            return;
-        }
-
+    void telemetryThread(std::atomic<bool> &stop, LoRa &lora) {
         std::cout << "Telemetry thread running" << std::endl;
         uint16_t seq = 0;
 
@@ -537,6 +516,64 @@ public:
 
             std::this_thread::sleep_for(
                 std::chrono::milliseconds((int)(1000.0f / hz)));
+        }
+    }
+
+    // ------------------------------------------------------------ links --
+
+    void updateLinkReport(const LinkReportFields &f, int rssi, bool rssi_valid) {
+        std::lock_guard<std::mutex> lk(link_mu_);
+        link_report_ = f;
+        uplink_rssi_dbm_ = rssi;
+        uplink_rssi_seen_ = rssi_valid;
+        last_beacon_ms_ = steadyMs();
+        link_seen_ = true;
+        beacon_count_++;
+    }
+
+    void linkThread(std::atomic<bool> &stop, LoRa &lora) {
+        std::cout << "Link thread running" << std::endl;
+        const bool rssi_appended = lora.settings().rssi_append;
+        std::vector<uint8_t> buf;
+        while (!stop.load()) {
+            uint8_t chunk[64];
+            size_t n = lora.receive(chunk, sizeof(chunk));
+            if (n == 0) {
+                std::this_thread::sleep_for(std::chrono::milliseconds(20));
+                continue;
+            }
+            buf.insert(buf.end(), chunk, chunk + n);
+            if (buf.size() > 8192) {
+                // Extremely unlikely (RS485-style noise); keep the tail so a
+                // partially-arrived frame can still complete.
+                buf.erase(buf.begin(), buf.end() - FIRELINK_PACKET_SIZE);
+            }
+
+            size_t i = 0;
+            while (i + FIRELINK_PACKET_SIZE <= buf.size()) {
+                if (buf[i] != 'F' || buf[i + 1] != 'L') { ++i; continue; }
+                LinkReportFields f;
+                if (packetDecodeLink(buf.data() + i, FIRELINK_PACKET_SIZE, f)) {
+                    int rssi = 0;
+                    bool rssi_valid = false;
+                    size_t step = FIRELINK_PACKET_SIZE;
+                    if (rssi_appended) {
+                        // Module appends an RSSI byte after received data; the
+                        // byte is phrased as unsigned, with the real signal in
+                        // the 7-bit two's-complement range.
+                        if (i + FIRELINK_PACKET_SIZE + 1 > buf.size()) break;
+                        uint8_t raw = buf[i + FIRELINK_PACKET_SIZE];
+                        rssi = (raw >= 128) ? -(256 - raw) : (int)raw;
+                        rssi_valid = rssi < 0;
+                        step = FIRELINK_PACKET_SIZE + 1;
+                    }
+                    updateLinkReport(f, rssi, rssi_valid);
+                    i += step;
+                } else {
+                    ++i;
+                }
+            }
+            if (i > 0) buf.erase(buf.begin(), buf.begin() + i);
         }
     }
 
@@ -734,8 +771,33 @@ public:
            << "\"session_dir\":\"" << jsonEscape(s.session_dir) << "\","
            << "\"disk_free_mb\":" << diskFreeMb(cfg_.getString("data_dir", "data")) << ","
            << "\"telemetry_seq\":" << s.telemetry_seq << ","
-           << "\"max_alt_rel_m\":" << s.max_alt_rel_m << ","
-           << "\"max_accel_mag\":" << s.max_accel_mag << "}";
+<< "\"max_alt_rel_m\":" << s.max_alt_rel_m << ","
+            << "\"max_accel_mag\":" << s.max_accel_mag;
+        {
+            std::lock_guard<std::mutex> lk(link_mu_);
+            uint64_t age_ms = (link_seen_ && now_ms >= last_beacon_ms_)
+                              ? now_ms - last_beacon_ms_ : UINT64_MAX;
+            bool online = link_seen_ && age_ms < link_online_timeout_ms_;
+            os << ",\"link\":{\"gs_online\":" << (online ? "true" : "false")
+               << ",\"beacon_age_s\":"
+               << ((age_ms == UINT64_MAX) ? -1 : (int64_t)(age_ms / 1000))
+               << ",\"beacon_count\":" << beacon_count_
+               << ",\"last_rx_seq\":" << link_report_.last_rx_seq
+               << ",\"gs_packets_ok\":" << link_report_.packets_ok
+               << ",\"gs_packets_lost\":" << link_report_.packets_lost
+               << ",\"gs_packets_bad\":" << link_report_.packets_bad
+               << ",\"gs_rssi_dbm\":" << (int)link_report_.rssi_dbm
+               << ",\"gs_rssi_valid\":"
+               << ((link_report_.flags & 1) ? "true" : "false")
+               << ",\"gs_rate_cps\":"
+               << (link_report_.rate_cps_x100 / 100.0)
+               << ",\"gs_rx_age_ms\":" << link_report_.rx_age_ms
+               << ",\"uplink_rssi_dbm\":" << uplink_rssi_dbm_
+               << ",\"uplink_rssi_valid\":"
+               << (uplink_rssi_seen_ ? "true" : "false")
+               << "}";
+        }
+        os << "}";
         return os.str();
     }
 
@@ -817,11 +879,34 @@ public:
         std::signal(SIGINT, [](int) { stop_ptr->store(true); });
 
         std::vector<std::thread> threads;
+
+        LoRa::Settings ls;
+        ls.uart = cfg_.getString("lora.uart", "/dev/serial0");
+        ls.baud = cfg_.getInt("lora.baud", 9600);
+        ls.m0_pin = cfg_.getInt("pin.lora_m0", 22);
+        ls.m1_pin = cfg_.getInt("pin.lora_m1", 27);
+        ls.aux_pin = cfg_.getInt("pin.lora_aux", -1);
+        ls.chip = cfg_.getString("gpio.chip", "gpiochip0");
+        ls.configure = cfg_.getBool("lora.configure", false);
+        ls.address = (uint16_t)cfg_.getInt("lora.address", 0);
+        ls.net_id = (uint8_t)cfg_.getInt("lora.net_id", 0);
+        ls.air_baud = cfg_.getInt("lora.air_baud", 2400);
+        ls.tx_power_dbm = cfg_.getInt("lora.tx_power_dbm", 22);
+        ls.channel = (uint8_t)cfg_.getInt("lora.channel", 18);
+        ls.rssi_append = cfg_.getBool("lora.rssi_append", false);
+        ls.fixed_mode = cfg_.getBool("lora.fixed_mode", false);
+
+        LoRa lora(ls);
+        if (!lora.begin()) {
+            std::cerr << "LoRa unavailable, link down" << std::endl;
+        }
+
         threads.emplace_back([this, &stop] { gpsThread(stop); });
         threads.emplace_back([this, &stop] { imuThread(stop); });
         threads.emplace_back([this, &stop] { envThread(stop); });
         threads.emplace_back([this, &stop] { geigerThread(stop); });
-        threads.emplace_back([this, &stop] { telemetryThread(stop); });
+        threads.emplace_back([this, &stop, &lora] { telemetryThread(stop, lora); });
+        threads.emplace_back([this, &stop, &lora] { linkThread(stop, lora); });
 
         // Web API.
         WebServer::Handlers h;
@@ -871,6 +956,16 @@ private:
     std::atomic<uint64_t> gps_lines_total_{0};
     std::atomic<uint64_t> gps_sentences_total_{0};
     uint64_t boot_ms_ = 0;
+
+    // Ground-station link report (updated by linkThread; read by statusJson).
+    std::mutex link_mu_;
+    LinkReportFields link_report_;
+    int uplink_rssi_dbm_ = 0;
+    bool uplink_rssi_seen_ = false;
+    bool link_seen_ = false;
+    uint64_t last_beacon_ms_ = 0;
+    uint32_t beacon_count_ = 0;
+    uint64_t link_online_timeout_ms_;   // set from config in the constructor
 
     // CSV session files (guarded by csv_mu_).
     std::mutex csv_mu_;
